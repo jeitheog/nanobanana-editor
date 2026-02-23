@@ -149,22 +149,32 @@ async function processRequest(prompt, isMultimodal = false) {
 }
 
 async function fetchImageAsBase64(url) {
-    try {
-        const response = await fetch(url, { mode: 'cors' });
-        if (!response.ok) throw new Error('Network response was not ok');
+    const tryFetch = async (targetUrl) => {
+        const response = await fetch(targetUrl);
+        if (!response.ok) throw new Error(`Status ${response.status}`);
         const blob = await response.blob();
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64data = reader.result.split(',')[1];
-                resolve(base64data);
-            };
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
             reader.onerror = reject;
             reader.readAsDataURL(blob);
         });
+    };
+
+    try {
+        // 1. Direct attempt with cache buster
+        const cbUrl = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+        return await tryFetch(cbUrl);
     } catch (err) {
-        console.error("CORS/Fetch error:", err);
-        throw new Error("fetching image failed: " + err.message);
+        console.warn("Direct fetch failed, trying proxy:", err);
+        try {
+            // 2. Fallback: Use weserv.nl as an image proxy (very reliable for CORS)
+            const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&output=jpg`;
+            return await tryFetch(proxyUrl);
+        } catch (proxyErr) {
+            console.error("Proxy fetch also failed:", proxyErr);
+            throw new Error("fetching image failed after proxy fallback");
+        }
     }
 }
 
