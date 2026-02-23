@@ -115,8 +115,8 @@ async function processRequest(prompt, isMultimodal = false) {
     try {
         let result;
         if (isMultimodal) {
-            // Multimodal request: Image + Text
-            const imageData = await fetchImageAsBase64(dom.generatedImage.src);
+            // Use the canvas-based extraction for better CORS compatibility
+            const imageData = imageToPostData(dom.generatedImage);
             result = await state.model.generateContent([
                 prompt,
                 {
@@ -141,28 +141,28 @@ async function processRequest(prompt, isMultimodal = false) {
         console.error("Error with Nano Banana Pro:", error);
         let msg = "Error al conectar con Nano Banana Pro.";
         if (error.message.includes('API key')) msg = "API Key inválida o no configurada.";
-        if (error.message.includes('fetch') || error.message.includes('fetching')) msg = "Error de conexión con la imagen (CORS).";
+        if (error.message.includes('canvas') || error.message.includes('image')) msg = "Error al procesar la imagen (CORS).";
         alert(`${msg} Revisa la configuración.`);
     } finally {
         setGenerating(false);
     }
 }
 
-async function fetchImageAsBase64(url) {
+function imageToPostData(imgElement) {
     try {
-        // Since we now proxy everything, a simple fetch should work
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result.split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-        });
+        if (!imgElement.naturalWidth) {
+            throw new Error("Imagen no cargada completamente.");
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = imgElement.naturalWidth;
+        canvas.height = imgElement.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgElement, 0, 0);
+        // Get JPEG base64 (Gemini prefers it)
+        return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
     } catch (err) {
-        console.error("Base64 conversion failed:", err);
-        throw err;
+        console.error("Canvas extraction failed:", err);
+        throw new Error("canvas processing failed: " + err.message);
     }
 }
 
