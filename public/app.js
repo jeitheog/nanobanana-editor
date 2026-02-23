@@ -43,8 +43,8 @@ function init() {
 
 function setupAI() {
     state.genAI = new GoogleGenerativeAI(state.apiKey);
-    // Use flash for better latency and multimodal handling in some regions
-    state.model = state.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Use the pro model which confirmed to exist in the user's environment
+    state.model = state.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 }
 
 function attachEventListeners() {
@@ -115,6 +115,10 @@ async function processRequest(prompt, isMultimodal = false) {
     try {
         let result;
         if (isMultimodal) {
+            // Check if image is loaded
+            if (!dom.generatedImage.complete || dom.generatedImage.naturalWidth === 0) {
+                throw new Error("La imagen aún no se ha cargado en el editor. Espera un segundo.");
+            }
             // Use the canvas-based extraction for better CORS compatibility
             const imageData = imageToPostData(dom.generatedImage);
             result = await state.model.generateContent([
@@ -143,9 +147,9 @@ async function processRequest(prompt, isMultimodal = false) {
         let msg = "Error al conectar con Nano Banana Pro.";
 
         if (errorHint.includes('API key')) msg = "API Key inválida.";
-        if (errorHint.includes('canvas') || errorHint.includes('image')) msg = "Error al procesar la imagen.";
-        if (errorHint.includes('403')) msg = "Permiso denegado (403). Revisa si tu API Key tiene acceso a Gemini.";
-        if (errorHint.includes('429')) msg = "Demasiadas peticiones (429). Espera un momento.";
+        if (errorHint.includes('canvas') || errorHint.includes('image') || errorHint.includes('cargado')) msg = "Error al procesar la imagen.";
+        if (errorHint.includes('404')) msg = "El modelo no se encuentra. Intentando con Pro.";
+        if (errorHint.includes('403')) msg = "Permiso denegado (403). Revisa tu API Key.";
 
         alert(`${msg}\n\nDetalle: ${errorHint}`);
     } finally {
