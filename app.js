@@ -70,8 +70,50 @@ async function generateImage() {
 }
 
 async function translateTextImage() {
-    const prompt = 'haz una imagen manteniendo el producto pero solo cambiando el texto a español';
-    generateWithDalle3(prompt);
+    if (dom.generatedImage.classList.contains('hidden') || !dom.generatedImage.src) {
+        alert('Primero selecciona una imagen desde el CSV.');
+        return;
+    }
+
+    setGenerating(true);
+    try {
+        const { base64, mimeType } = getImageBase64(dom.generatedImage);
+
+        const response = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: base64, mimeType })
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+            throw new Error(err.error || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const item = data.data?.[0];
+        if (!item?.b64_json) throw new Error('No se recibió imagen.');
+
+        displayFinalImage(`data:image/png;base64,${item.b64_json}`, 'traducción al español');
+
+    } catch (err) {
+        console.error('Error traducción:', err);
+        alert(`Error al traducir imagen:\n${err.message}`);
+    } finally {
+        setGenerating(false);
+    }
+}
+
+function getImageBase64(imgElement) {
+    const canvas = document.createElement('canvas');
+    const w = imgElement.naturalWidth || 1024;
+    const h = imgElement.naturalHeight || 1024;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgElement, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    return { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
 }
 
 async function generateWithDalle3(prompt) {
@@ -97,7 +139,7 @@ async function generateWithDalle3(prompt) {
 
     } catch (err) {
         console.error('DALL-E 3 error:', err);
-        alert(`Error al generar imagen:\n${err.message}\n\nAsegúrate de que el servidor está corriendo (npm run server).`);
+        alert(`Error al generar imagen:\n${err.message}`);
     } finally {
         setGenerating(false);
     }
