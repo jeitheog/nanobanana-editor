@@ -7,9 +7,11 @@ const state = {
 // ── DOM Elements ──────────────────────────────────────────
 const dom = {
     generatedImage: document.getElementById('generatedImage'),
-    emptyState: document.querySelector('.empty-state'),
+    emptyState: document.getElementById('dropZone'),
     loader: document.getElementById('loader'),
     btnDownload: document.getElementById('btnDownload'),
+    imageContainer: document.getElementById('imageContainer'),
+    imgFileInput: document.getElementById('imgFileInput'),
     // CSV & Gallery Refs
     btnUploadCSV: document.getElementById('btnUploadCSV'),
     csvFileInput: document.getElementById('csvFileInput'),
@@ -27,13 +29,48 @@ function init() {
 function attachEventListeners() {
     dom.btnDownload.addEventListener('click', downloadImage);
 
+    // Image drop zone
+    dom.emptyState.addEventListener('click', () => dom.imgFileInput.click());
+    dom.imgFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) loadImageFile(file);
+    });
+
+    dom.imageContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dom.imageContainer.classList.add('drop-active');
+    });
+    dom.imageContainer.addEventListener('dragleave', () => {
+        dom.imageContainer.classList.remove('drop-active');
+    });
+    dom.imageContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dom.imageContainer.classList.remove('drop-active');
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) {
+            loadImageFile(file);
+        }
+    });
+
+    // Paste image (Ctrl+V)
+    document.addEventListener('paste', (e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.startsWith('image/')) {
+                loadImageFile(item.getAsFile());
+                break;
+            }
+        }
+    });
+
     // CSV & Gallery Listeners
     dom.btnUploadCSV.addEventListener('click', () => dom.csvFileInput.click());
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
     dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
     dom.btnTranslateImage.addEventListener('click', translateTextImage);
 
-    // Drag and Drop
+    // CSV Drag and Drop
     dom.btnUploadCSV.addEventListener('dragover', (e) => {
         e.preventDefault();
         dom.btnUploadCSV.classList.add('drag-over');
@@ -47,11 +84,20 @@ function attachEventListeners() {
         const file = e.dataTransfer.files[0];
         if (file && file.name.endsWith('.csv')) {
             processFile(file);
-        } else {
-            alert('Por favor, arrastra un archivo CSV válido.');
         }
     });
+}
 
+function loadImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        dom.emptyState.classList.add('hidden');
+        dom.loader.classList.add('hidden');
+        dom.generatedImage.classList.remove('hidden');
+        dom.generatedImage.src = e.target.result;
+        dom.btnDownload.classList.remove('hidden');
+    };
+    reader.readAsDataURL(file);
 }
 
 // ── Core Functions ────────────────────────────────────────
@@ -143,7 +189,6 @@ function displayFinalImage(imageUrl, prompt) {
 
 function setGenerating(status) {
     state.isGenerating = status;
-    dom.generateBtn.disabled = status;
     dom.loader.classList.toggle('hidden', !status);
     dom.emptyState.classList.toggle('hidden', status);
     dom.generatedImage.classList.toggle('hidden', status);
