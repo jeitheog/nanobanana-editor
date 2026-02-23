@@ -141,17 +141,18 @@ async function processRequest(prompt, isMultimodal = false) {
         console.error("Error with Nano Banana Pro:", error);
         let msg = "Error al conectar con Nano Banana Pro.";
         if (error.message.includes('API key')) msg = "API Key inválida o no configurada.";
-        if (error.message.includes('fetch')) msg = "Error al cargar la imagen. Posible problema de CORS.";
-        alert(`${msg} Revisa la consola para más detalles.`);
+        if (error.message.includes('fetch') || error.message.includes('fetching')) msg = "Error de conexión con la imagen (CORS).";
+        alert(`${msg} Revisa la configuración.`);
     } finally {
         setGenerating(false);
     }
 }
 
 async function fetchImageAsBase64(url) {
-    const tryFetch = async (targetUrl) => {
-        const response = await fetch(targetUrl);
-        if (!response.ok) throw new Error(`Status ${response.status}`);
+    try {
+        // Since we now proxy everything, a simple fetch should work
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -159,22 +160,9 @@ async function fetchImageAsBase64(url) {
             reader.onerror = reject;
             reader.readAsDataURL(blob);
         });
-    };
-
-    try {
-        // 1. Direct attempt with cache buster
-        const cbUrl = url + (url.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-        return await tryFetch(cbUrl);
     } catch (err) {
-        console.warn("Direct fetch failed, trying proxy:", err);
-        try {
-            // 2. Fallback: Use weserv.nl as an image proxy (very reliable for CORS)
-            const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&output=jpg`;
-            return await tryFetch(proxyUrl);
-        } catch (proxyErr) {
-            console.error("Proxy fetch also failed:", proxyErr);
-            throw new Error("fetching image failed after proxy fallback");
-        }
+        console.error("Base64 conversion failed:", err);
+        throw err;
     }
 }
 
@@ -286,12 +274,14 @@ function parseShopifyCSV(text) {
 
     const products = [];
     rows.slice(1).forEach(r => {
-        const src = r[imageIdx];
+        let src = r[imageIdx];
         if (src && src.startsWith('http')) {
+            // Proxy images immediately to avoid CORS issues everywhere
+            const proxiedSrc = `https://images.weserv.nl/?url=${encodeURIComponent(src.split('?')[0])}&output=jpg`;
             products.push({
                 title: r[titleIdx] || 'Producto sin título',
                 handle: r[handleIdx] || '',
-                src: src
+                src: proxiedSrc
             });
         }
     });
@@ -317,7 +307,8 @@ function selectImageFromGallery(url) {
     dom.emptyState.classList.add('hidden');
     dom.loader.classList.add('hidden');
     dom.generatedImage.classList.remove('hidden');
-    // Ensure main image also has CORS allowed
+
+    // Ensure we use the proxied URL and set crossOrigin
     dom.generatedImage.crossOrigin = "anonymous";
     dom.generatedImage.src = url;
 
