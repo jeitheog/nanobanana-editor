@@ -193,31 +193,47 @@ async function processRequest(prompt, isMultimodal = false, attempt = 0) {
                 prompt,
                 { inlineData: { data: imageData, mimeType: "image/jpeg" } }
             ]);
-        } else {
-            result = await state.model.generateContent(prompt);
-        }
+            const response = await result.response;
 
-        const response = await result.response;
-
-        // --- REAL IMAGE HANDLING ---
-        let foundImage = false;
-        const parts = response.candidates?.[0]?.content?.parts || [];
-
-        for (const part of parts) {
-            if (part.inlineData) {
-                const base64Str = part.inlineData.data;
-                const mimeType = part.inlineData.mimeType || 'image/jpeg';
-                const imageUrl = `data:${mimeType};base64,${base64Str}`;
-
-                displayFinalImage(imageUrl, prompt);
-                foundImage = true;
-                break;
+            // --- GEMINI MULTIMODAL HANDLING ---
+            let foundImage = false;
+            const parts = response.candidates?.[0]?.content?.parts || [];
+            for (const part of parts) {
+                if (part.inlineData) {
+                    const base64Str = part.inlineData.data;
+                    const mimeType = part.inlineData.mimeType || 'image/jpeg';
+                    const imageUrl = `data:${mimeType};base64,${base64Str}`;
+                    displayFinalImage(imageUrl, prompt);
+                    foundImage = true;
+                    break;
+                }
             }
-        }
+            if (!foundImage) {
+                showPlaceholderResult(prompt, true);
+            }
+        } else {
+            // --- VERTEX AI (IMAGEN 3) GENERATION ---
+            const res = await fetch('/api/imagen', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, sampleCount: 1, aspectRatio: '1:1' })
+            });
 
-        if (!foundImage) {
-            console.log("No real image found in response, showing simulation for WOW effect.");
-            showPlaceholderResult(prompt, isMultimodal);
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || `Error del servidor: ${res.status}`);
+            }
+
+            const data = await res.json();
+            if (data.predictions && data.predictions[0] && data.predictions[0].bytesBase64Encoded) {
+                const base64Str = data.predictions[0].bytesBase64Encoded;
+                const mimeType = data.predictions[0].mimeType || 'image/png';
+                const imageUrl = `data:${mimeType};base64,${base64Str}`;
+                displayFinalImage(imageUrl, prompt);
+            } else {
+                console.warn("No bytes returned from Vertex AI, showing placeholder.");
+                showPlaceholderResult(prompt, false);
+            }
         }
 
     } catch (error) {
