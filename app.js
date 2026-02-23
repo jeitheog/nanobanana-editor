@@ -10,13 +10,17 @@ const state = {
     history: []
 };
 
-// More exhaustive list of model names to avoid 404 across different regions/keys
+// Even more exhaustive list including 1.0 versions as ultimate fallbacks
 const MODEL_FALLBACKS = [
     'gemini-1.5-flash-latest',
     'gemini-1.5-flash',
     'gemini-1.5-pro-latest',
     'gemini-1.5-pro',
-    'gemini-2.0-flash-exp'
+    'gemini-1.5-flash-002',
+    'gemini-1.5-pro-002',
+    'gemini-1.5-flash-8b',
+    'gemini-2.0-flash-exp',
+    'gemini-pro-vision'
 ];
 
 // ── DOM Elements ──────────────────────────────────────────
@@ -31,6 +35,8 @@ const dom = {
     settingsModal: document.getElementById('settingsModal'),
     apiKeyInput: document.getElementById('apiKeyInput'),
     modelSelect: document.getElementById('modelSelect'),
+    customModelGroup: document.getElementById('customModelGroup'),
+    customModelInput: document.getElementById('customModelInput'),
     saveSettings: document.getElementById('saveSettings'),
     btnDownload: document.getElementById('btnDownload'),
     // CSV & Gallery Refs
@@ -64,6 +70,14 @@ function attachEventListeners() {
     dom.btnSettings.addEventListener('click', showModal);
     dom.saveSettings.addEventListener('click', saveApiKey);
     dom.btnDownload.addEventListener('click', downloadImage);
+
+    dom.modelSelect.addEventListener('change', () => {
+        if (dom.modelSelect.value === 'custom') {
+            dom.customModelGroup.classList.remove('hidden');
+        } else {
+            dom.customModelGroup.classList.add('hidden');
+        }
+    });
 
     // CSV & Gallery Listeners
     dom.btnUploadCSV.addEventListener('click', () => dom.csvFileInput.click());
@@ -191,7 +205,7 @@ function imageToPostData(imgElement) {
 
 function showPlaceholderResult(prompt, isMultimodal = false) {
     // In a production app, this would be the actual image URL from Imagen API
-    // For this WOW demonstration, we use high-quality visuals that simulate the AI's "edit"
+    // For this WOW demonstration, we simulate an 'enhanced' or 'translated' version
 
     dom.emptyState.classList.add('hidden');
     dom.loader.classList.add('hidden');
@@ -229,13 +243,27 @@ function setGenerating(status) {
 
 function showModal() {
     dom.apiKeyInput.value = state.apiKey;
-    dom.modelSelect.value = state.modelName;
+    // Check if current model is in standard list
+    const isStandard = ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-2.0-flash-exp'].includes(state.modelName);
+
+    if (isStandard) {
+        dom.modelSelect.value = state.modelName;
+        dom.customModelGroup.classList.add('hidden');
+    } else {
+        dom.modelSelect.value = 'custom';
+        dom.customModelInput.value = state.modelName;
+        dom.customModelGroup.classList.remove('hidden');
+    }
     dom.settingsModal.classList.remove('hidden');
 }
 
 function saveApiKey() {
     const key = dom.apiKeyInput.value.trim();
-    const model = dom.modelSelect.value;
+    let model = dom.modelSelect.value;
+
+    if (model === 'custom') {
+        model = dom.customModelInput.value.trim() || 'gemini-1.5-flash-latest';
+    }
 
     if (key) {
         state.apiKey = key;
