@@ -43,8 +43,8 @@ function init() {
 
 function setupAI() {
     state.genAI = new GoogleGenerativeAI(state.apiKey);
-    // Use the latest Gemini Pro Image model (Nano Banana nickname)
-    state.model = state.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    // Use flash for better latency and multimodal handling in some regions
+    state.model = state.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 }
 
 function attachEventListeners() {
@@ -134,15 +134,20 @@ async function processRequest(prompt, isMultimodal = false) {
         const text = response.text();
         console.log("Nano Banana Response:", text);
 
-        // Simulation for the UI WOW effect
         showPlaceholderResult(prompt);
 
     } catch (error) {
-        console.error("Error with Nano Banana Pro:", error);
+        console.error("Nano Banana Error Detail:", error);
+
+        let errorHint = error.message || "Error desconocido";
         let msg = "Error al conectar con Nano Banana Pro.";
-        if (error.message.includes('API key')) msg = "API Key inválida o no configurada.";
-        if (error.message.includes('canvas') || error.message.includes('image')) msg = "Error al procesar la imagen (CORS).";
-        alert(`${msg} Revisa la configuración.`);
+
+        if (errorHint.includes('API key')) msg = "API Key inválida.";
+        if (errorHint.includes('canvas') || errorHint.includes('image')) msg = "Error al procesar la imagen.";
+        if (errorHint.includes('403')) msg = "Permiso denegado (403). Revisa si tu API Key tiene acceso a Gemini.";
+        if (errorHint.includes('429')) msg = "Demasiadas peticiones (429). Espera un momento.";
+
+        alert(`${msg}\n\nDetalle: ${errorHint}`);
     } finally {
         setGenerating(false);
     }
