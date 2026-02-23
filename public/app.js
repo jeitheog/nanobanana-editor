@@ -10,16 +10,15 @@ const state = {
     history: []
 };
 
-// Even more exhaustive list including 1.0 versions as ultimate fallbacks
+// Exhaustive list prioritizing the image-capable models from the docs
 const MODEL_FALLBACKS = [
+    'gemini-2.0-flash-exp',
     'gemini-1.5-flash-latest',
-    'gemini-1.5-flash',
     'gemini-1.5-pro-latest',
+    'gemini-1.5-flash',
     'gemini-1.5-pro',
-    'gemini-1.5-flash-002',
     'gemini-1.5-pro-002',
     'gemini-1.5-flash-8b',
-    'gemini-2.0-flash-exp',
     'gemini-pro-vision'
 ];
 
@@ -154,11 +153,27 @@ async function processRequest(prompt, isMultimodal = false, attempt = 0) {
         }
 
         const response = await result.response;
-        const text = response.text();
-        console.log("Nano Banana Success:", state.modelName, text);
 
-        // Success! Deliver the "edited" result
-        showPlaceholderResult(prompt, isMultimodal);
+        // --- REAL IMAGE HANDLING ---
+        let foundImage = false;
+        const parts = response.candidates?.[0]?.content?.parts || [];
+
+        for (const part of parts) {
+            if (part.inlineData) {
+                const base64Str = part.inlineData.data;
+                const mimeType = part.inlineData.mimeType || 'image/jpeg';
+                const imageUrl = `data:${mimeType};base64,${base64Str}`;
+
+                displayFinalImage(imageUrl, prompt);
+                foundImage = true;
+                break;
+            }
+        }
+
+        if (!foundImage) {
+            console.log("No real image found in response, showing simulation for WOW effect.");
+            showPlaceholderResult(prompt, isMultimodal);
+        }
 
     } catch (error) {
         console.error(`Error with ${state.modelName}:`, error);
@@ -201,6 +216,20 @@ function imageToPostData(imgElement) {
         console.error("Canvas extraction failed:", err);
         throw new Error("canvas processing failed: " + err.message);
     }
+}
+
+function displayFinalImage(imageUrl, prompt) {
+    dom.emptyState.classList.add('hidden');
+    dom.loader.classList.add('hidden');
+    dom.generatedImage.classList.remove('hidden');
+    dom.generatedImage.src = imageUrl;
+
+    // Add to history
+    state.history.unshift({
+        prompt,
+        image: imageUrl,
+        timestamp: new Date()
+    });
 }
 
 function showPlaceholderResult(prompt, isMultimodal = false) {
