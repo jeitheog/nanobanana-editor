@@ -1,7 +1,8 @@
 // ── State ──────────────────────────────────────────────────
 const state = {
     isGenerating: false,
-    history: []
+    history: [],
+    products: []
 };
 
 // ── DOM Elements ──────────────────────────────────────────
@@ -18,6 +19,7 @@ const dom = {
     galleryPanel: document.getElementById('galleryPanel'),
     galleryGrid: document.getElementById('galleryGrid'),
     closeGallery: document.getElementById('closeGallery'),
+    btnReplaceCSV: document.getElementById('btnReplaceCSV'),
     btnTranslateImage: document.getElementById('btnTranslateImage'),
     // History Refs
     btnHistory: document.getElementById('btnHistory'),
@@ -77,9 +79,16 @@ function attachEventListeners() {
     dom.closeHistory.addEventListener('click', () => dom.historyPanel.classList.add('hidden'));
 
     // CSV & Gallery Listeners
-    dom.btnUploadCSV.addEventListener('click', () => dom.csvFileInput.click());
+    dom.btnUploadCSV.addEventListener('click', () => {
+        if (state.products.length > 0) {
+            dom.galleryPanel.classList.toggle('hidden');
+        } else {
+            dom.csvFileInput.click();
+        }
+    });
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
     dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
+    dom.btnReplaceCSV.addEventListener('click', () => dom.csvFileInput.click());
     dom.btnTranslateImage.addEventListener('click', translateTextImage);
 
     // CSV Drag and Drop
@@ -284,6 +293,7 @@ function parseShopifyCSV(text) {
 }
 
 function renderGallery(products) {
+    state.products = products;
     dom.galleryGrid.innerHTML = '';
     products.forEach(p => {
         const item = document.createElement('div');

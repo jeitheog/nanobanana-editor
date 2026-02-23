@@ -422,6 +422,32 @@ body {
     margin-bottom: 20px;
 }
 
+.gallery-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.replace-csv-btn {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-dim);
+    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.replace-csv-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 .gallery-header h2 {
     font-size: 16px;
     font-weight: 700;
