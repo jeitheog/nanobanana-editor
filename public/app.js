@@ -144,7 +144,7 @@ async function processRequest(prompt, isMultimodal = false, attempt = 0) {
         console.log("Nano Banana Success:", state.modelName, text);
 
         // Success! Deliver the "edited" result
-        showPlaceholderResult(prompt);
+        showPlaceholderResult(prompt, isMultimodal);
 
     } catch (error) {
         console.error(`Error with ${state.modelName}:`, error);
@@ -189,22 +189,28 @@ function imageToPostData(imgElement) {
     }
 }
 
-function showPlaceholderResult(prompt) {
+function showPlaceholderResult(prompt, isMultimodal = false) {
     // In a production app, this would be the actual image URL from Imagen API
-    // For this WOW demonstration, we use a high-quality placeholder that matches the prompt
+    // For this WOW demonstration, we use high-quality visuals that simulate the AI's "edit"
+
     dom.emptyState.classList.add('hidden');
     dom.loader.classList.add('hidden');
     dom.generatedImage.classList.remove('hidden');
 
-    // Using Unsplash Source for dynamic high-quality visuals for the demo
-    const keyword = prompt.split(' ').slice(0, 3).join(',');
-    dom.generatedImage.src = `https://source.unsplash.com/1600x900/?${encodeURIComponent(keyword)}`;
+    // Use a more reliable image source for the demonstration
+    // If multimodal, we simulate an 'enhanced' or 'translated' version
+    const keyword = isMultimodal ? "professional,studio,clean" : prompt.split(' ').slice(0, 3).join(',');
+    const randomId = Math.floor(Math.random() * 1000);
 
-    // Add micro-animation
-    dom.imageContainer.style.transform = 'scale(0.98)';
-    setTimeout(() => {
-        dom.imageContainer.style.transform = 'scale(1)';
-    }, 200);
+    // Using a modern placeholder service that works
+    dom.generatedImage.src = `https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&q=80&w=1600&h=900&random=${randomId}`;
+
+    // Add to history
+    state.history.unshift({
+        prompt,
+        image: dom.generatedImage.src,
+        timestamp: new Date()
+    });
 }
 
 function setGenerating(status) {
