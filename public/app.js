@@ -10,7 +10,14 @@ const state = {
     history: []
 };
 
-const MODEL_FALLBACKS = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
+// More exhaustive list of model names to avoid 404 across different regions/keys
+const MODEL_FALLBACKS = [
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-pro',
+    'gemini-2.0-flash-exp'
+];
 
 // ── DOM Elements ──────────────────────────────────────────
 const dom = {
@@ -108,7 +115,7 @@ async function translateTextImage() {
     processRequest(prompt, true);
 }
 
-async function processRequest(prompt, isMultimodal = false) {
+async function processRequest(prompt, isMultimodal = false, attempt = 0) {
     if (!state.model) {
         alert('Por favor, configura tu API Key primero.');
         showModal();
@@ -120,20 +127,13 @@ async function processRequest(prompt, isMultimodal = false) {
     try {
         let result;
         if (isMultimodal) {
-            // Check if image is loaded
             if (!dom.generatedImage.complete || dom.generatedImage.naturalWidth === 0) {
-                throw new Error("La imagen aún no se ha cargado en el editor. Espera un segundo.");
+                throw new Error("Imagen no cargada. Por favor, selecciona una imagen de la galería.");
             }
-            // Use the canvas-based extraction for better CORS compatibility
             const imageData = imageToPostData(dom.generatedImage);
             result = await state.model.generateContent([
                 prompt,
-                {
-                    inlineData: {
-                        data: imageData,
-                        mimeType: "image/jpeg"
-                    }
-                }
+                { inlineData: { data: imageData, mimeType: "image/jpeg" } }
             ]);
         } else {
             result = await state.model.generateContent(prompt);
@@ -141,30 +141,29 @@ async function processRequest(prompt, isMultimodal = false) {
 
         const response = await result.response;
         const text = response.text();
-        console.log("Nano Banana Response:", text);
+        console.log("Nano Banana Success:", state.modelName, text);
 
+        // Success! Deliver the "edited" result
         showPlaceholderResult(prompt);
 
     } catch (error) {
-        console.error("Nano Banana Error Detail:", error);
+        console.error(`Error with ${state.modelName}:`, error);
 
-        let errorHint = error.message || "Error desconocido";
+        const errorHint = error.message || "";
 
-        // If 404 and we have fallbacks, try the next one automatically
-        if (errorHint.includes('404')) {
-            console.warn(`Model ${state.modelName} not found. Trying fallbacks...`);
-            const nextModel = MODEL_FALLBACKS.find(m => m !== state.modelName);
-            if (nextModel) {
-                setupAI(nextModel);
-                return processRequest(prompt, isMultimodal);
-            }
+        // Smarter Fallback Logic
+        if ((errorHint.includes('404') || errorHint.includes('not found')) && attempt < MODEL_FALLBACKS.length - 1) {
+            const nextModel = MODEL_FALLBACKS[attempt + 1];
+            console.warn(`Model ${state.modelName} failed. Trying fallback: ${nextModel}`);
+            setupAI(nextModel);
+            return processRequest(prompt, isMultimodal, attempt + 1);
         }
 
         let msg = "Error al conectar con Nano Banana Pro.";
-        if (errorHint.includes('API key')) msg = "API Key inválida.";
-        if (errorHint.includes('canvas') || errorHint.includes('image') || errorHint.includes('cargado')) msg = "Error al procesar la imagen.";
-        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible con tu API Key.";
-        if (errorHint.includes('403')) msg = "Permiso denegado (403). Tu API Key podría estar restringida o sin cuota.";
+        if (errorHint.includes('API key')) msg = "API Key inválida o desactivada.";
+        if (errorHint.includes('403')) msg = "Permiso denegado (403). Tu API Key no tiene acceso a este modelo.";
+        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible en tu región.";
+        if (errorHint.includes('canvas') || errorHint.includes('image')) msg = "Error al procesar la imagen seleccionada.";
 
         alert(`${msg}\n\nDetalle: ${errorHint}`);
     } finally {
