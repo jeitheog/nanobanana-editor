@@ -6,8 +6,6 @@ const state = {
 
 // ── DOM Elements ──────────────────────────────────────────
 const dom = {
-    promptInput: document.getElementById('promptInput'),
-    generateBtn: document.getElementById('generateBtn'),
     generatedImage: document.getElementById('generatedImage'),
     emptyState: document.querySelector('.empty-state'),
     loader: document.getElementById('loader'),
@@ -27,7 +25,6 @@ function init() {
 }
 
 function attachEventListeners() {
-    dom.generateBtn.addEventListener('click', generateImage);
     dom.btnDownload.addEventListener('click', downloadImage);
 
     // CSV & Gallery Listeners
@@ -55,20 +52,9 @@ function attachEventListeners() {
         }
     });
 
-    // Auto-resize textarea
-    dom.promptInput.addEventListener('input', function () {
-        this.style.height = 'auto';
-        this.style.height = (this.scrollHeight) + 'px';
-    });
 }
 
 // ── Core Functions ────────────────────────────────────────
-async function generateImage() {
-    const prompt = dom.promptInput.value.trim();
-    if (!prompt) return;
-    generateWithDalle3(prompt);
-}
-
 async function translateTextImage() {
     if (dom.generatedImage.classList.contains('hidden') || !dom.generatedImage.src) {
         alert('Primero selecciona una imagen desde el CSV.');
@@ -163,7 +149,6 @@ function setGenerating(status) {
     dom.generatedImage.classList.toggle('hidden', status);
     if (status) dom.btnDownload.classList.add('hidden');
 
-    dom.generateBtn.querySelector('span').textContent = status ? 'Creando...' : 'Generar';
 }
 
 function downloadImage() {
