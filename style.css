@@ -353,6 +353,41 @@ body {
     outline: none;
 }
 
+/* History Panel */
+.history-panel {
+    position: fixed;
+    left: 300px;
+    top: 100px;
+    bottom: 120px;
+    width: 320px;
+    border-radius: 24px;
+    padding: 24px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    animation: slideInLeft 0.4s ease;
+}
+
+@keyframes slideInLeft {
+    from {
+        transform: translateX(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.history-empty {
+    grid-column: span 2;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 40px 0;
+    line-height: 1.6;
+}
+
 /* Gallery Panel */
 .gallery-panel {
     position: fixed;

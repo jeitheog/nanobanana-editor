@@ -18,7 +18,12 @@ const dom = {
     galleryPanel: document.getElementById('galleryPanel'),
     galleryGrid: document.getElementById('galleryGrid'),
     closeGallery: document.getElementById('closeGallery'),
-    btnTranslateImage: document.getElementById('btnTranslateImage')
+    btnTranslateImage: document.getElementById('btnTranslateImage'),
+    // History Refs
+    btnHistory: document.getElementById('btnHistory'),
+    historyPanel: document.getElementById('historyPanel'),
+    historyGrid: document.getElementById('historyGrid'),
+    closeHistory: document.getElementById('closeHistory')
 };
 
 // ── Initialization ────────────────────────────────────────
@@ -63,6 +68,13 @@ function attachEventListeners() {
             }
         }
     });
+
+    // History Listeners
+    dom.btnHistory.addEventListener('click', () => {
+        renderHistory();
+        dom.historyPanel.classList.toggle('hidden');
+    });
+    dom.closeHistory.addEventListener('click', () => dom.historyPanel.classList.add('hidden'));
 
     // CSV & Gallery Listeners
     dom.btnUploadCSV.addEventListener('click', () => dom.csvFileInput.click());
@@ -294,6 +306,29 @@ function selectImageFromGallery(url) {
         dom.generatedImage.style.opacity = '1';
         dom.generatedImage.style.transition = 'opacity 0.5s ease';
     }, 50);
+}
+
+// ── History Logic ──────────────────────────────────────────
+function renderHistory() {
+    dom.historyGrid.innerHTML = '';
+    if (state.history.length === 0) {
+        dom.historyGrid.innerHTML = '<p class="history-empty">Sin historial aún.<br>Traduce o genera una imagen.</p>';
+        return;
+    }
+    state.history.forEach((entry) => {
+        const item = document.createElement('div');
+        item.className = 'gallery-item';
+        const time = entry.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        item.innerHTML = `<img src="${entry.image}" alt="${entry.prompt}" title="${entry.prompt} · ${time}">`;
+        item.onclick = () => {
+            dom.emptyState.classList.add('hidden');
+            dom.generatedImage.classList.remove('hidden');
+            dom.generatedImage.src = entry.image;
+            dom.btnDownload.classList.remove('hidden');
+            dom.historyPanel.classList.add('hidden');
+        };
+        dom.historyGrid.appendChild(item);
+    });
 }
 
 init();

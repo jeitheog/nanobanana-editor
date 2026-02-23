@@ -66,10 +66,12 @@
 
             <section class="preview-area">
                 <div class="image-container glass" id="imageContainer">
-                    <div class="empty-state">
-                        <div class="placeholder-icon">🎨</div>
-                        <p>Describe tu visión y Nano Banana la hará realidad.</p>
+                    <div class="empty-state" id="dropZone">
+                        <div class="placeholder-icon">🖼️</div>
+                        <p class="drop-title">Insertar imagen</p>
+                        <p class="drop-hint">Arrastra, pega (Ctrl+V) o haz clic</p>
                     </div>
+                    <input type="file" id="imgFileInput" accept="image/*" class="hidden">
                     <img id="generatedImage" class="hidden" alt="Imagen generada">
                     <button id="btnDownload" class="download-fab hidden">⬇ Descargar</button>
                     <div id="loader" class="loader hidden">
@@ -83,6 +85,16 @@
 
         <!-- Modals & Overlays -->
         <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+
+        <div id="historyPanel" class="history-panel glass hidden">
+            <div class="gallery-header">
+                <h2>Historial</h2>
+                <button id="closeHistory" class="close-btn">&times;</button>
+            </div>
+            <div id="historyGrid" class="gallery-grid">
+                <!-- History items injected here -->
+            </div>
+        </div>
 
         <div id="galleryPanel" class="gallery-panel glass hidden">
             <div class="gallery-header">
