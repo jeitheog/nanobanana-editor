@@ -3,11 +3,14 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // ── State ──────────────────────────────────────────────────
 const state = {
     apiKey: localStorage.getItem('nano_banana_api_key') || '',
+    modelName: localStorage.getItem('nano_banana_model') || 'gemini-1.5-flash',
     genAI: null,
     model: null,
     isGenerating: false,
     history: []
 };
+
+const MODEL_FALLBACKS = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash-exp'];
 
 // ── DOM Elements ──────────────────────────────────────────
 const dom = {
@@ -20,6 +23,7 @@ const dom = {
     btnSettings: document.getElementById('btnSettings'),
     settingsModal: document.getElementById('settingsModal'),
     apiKeyInput: document.getElementById('apiKeyInput'),
+    modelSelect: document.getElementById('modelSelect'),
     saveSettings: document.getElementById('saveSettings'),
     btnDownload: document.getElementById('btnDownload'),
     // CSV & Gallery Refs
@@ -41,10 +45,11 @@ function init() {
     attachEventListeners();
 }
 
-function setupAI() {
+function setupAI(modelName = state.modelName) {
+    if (!state.apiKey) return;
     state.genAI = new GoogleGenerativeAI(state.apiKey);
-    // Use the pro model which confirmed to exist in the user's environment
-    state.model = state.genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    state.modelName = modelName;
+    state.model = state.genAI.getGenerativeModel({ model: modelName });
 }
 
 function attachEventListeners() {
@@ -144,12 +149,22 @@ async function processRequest(prompt, isMultimodal = false) {
         console.error("Nano Banana Error Detail:", error);
 
         let errorHint = error.message || "Error desconocido";
-        let msg = "Error al conectar con Nano Banana Pro.";
 
+        // If 404 and we have fallbacks, try the next one automatically
+        if (errorHint.includes('404')) {
+            console.warn(`Model ${state.modelName} not found. Trying fallbacks...`);
+            const nextModel = MODEL_FALLBACKS.find(m => m !== state.modelName);
+            if (nextModel) {
+                setupAI(nextModel);
+                return processRequest(prompt, isMultimodal);
+            }
+        }
+
+        let msg = "Error al conectar con Nano Banana Pro.";
         if (errorHint.includes('API key')) msg = "API Key inválida.";
         if (errorHint.includes('canvas') || errorHint.includes('image') || errorHint.includes('cargado')) msg = "Error al procesar la imagen.";
-        if (errorHint.includes('404')) msg = "El modelo no se encuentra. Intentando con Pro.";
-        if (errorHint.includes('403')) msg = "Permiso denegado (403). Revisa tu API Key.";
+        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible con tu API Key.";
+        if (errorHint.includes('403')) msg = "Permiso denegado (403). Tu API Key podría estar restringida o sin cuota.";
 
         alert(`${msg}\n\nDetalle: ${errorHint}`);
     } finally {
@@ -209,14 +224,19 @@ function setGenerating(status) {
 
 function showModal() {
     dom.apiKeyInput.value = state.apiKey;
+    dom.modelSelect.value = state.modelName;
     dom.settingsModal.classList.remove('hidden');
 }
 
 function saveApiKey() {
     const key = dom.apiKeyInput.value.trim();
+    const model = dom.modelSelect.value;
+
     if (key) {
         state.apiKey = key;
+        state.modelName = model;
         localStorage.setItem('nano_banana_api_key', key);
+        localStorage.setItem('nano_banana_model', model);
         setupAI();
         dom.settingsModal.classList.add('hidden');
     }
