@@ -112,6 +112,12 @@ body {
     box-shadow: inset 0 0 0 1px var(--glass-border);
 }
 
+.tool-btn.drag-over {
+    background: var(--accent-glow);
+    border: 1px dashed var(--accent);
+    transform: scale(1.02);
+}
+
 .tool-btn .icon {
     font-size: 18px;
 }

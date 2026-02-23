@@ -57,6 +57,27 @@ function attachEventListeners() {
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
     dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
 
+    // Drag and Drop Listeners
+    dom.btnUploadCSV.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dom.btnUploadCSV.classList.add('drag-over');
+    });
+
+    dom.btnUploadCSV.addEventListener('dragleave', () => {
+        dom.btnUploadCSV.classList.remove('drag-over');
+    });
+
+    dom.btnUploadCSV.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dom.btnUploadCSV.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.csv')) {
+            processFile(file);
+        } else {
+            alert('Por favor, arrastra un archivo CSV válido.');
+        }
+    });
+
     // Auto-resize textarea
     dom.promptInput.addEventListener('input', function () {
         this.style.height = 'auto';
@@ -159,8 +180,10 @@ function downloadImage() {
 // ── CSV & Gallery Logic ────────────────────────────────────
 function handleCSVUpload(e) {
     const file = e.target.files[0];
-    if (!file) return;
+    if (file) processFile(file);
+}
 
+function processFile(file) {
     const reader = new FileReader();
     reader.onload = (event) => {
         const text = event.target.result;
