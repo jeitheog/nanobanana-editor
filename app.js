@@ -70,10 +70,7 @@ async function generateImage() {
 }
 
 async function translateTextImage() {
-    const base = dom.promptInput.value.trim();
-    const prompt = base
-        ? `${base}, con todos los textos en español`
-        : 'producto profesional con texto en español, fondo limpio';
+    const prompt = 'haz una imagen manteniendo el producto pero solo cambiando el texto a español';
     generateWithDalle3(prompt);
 }
 
