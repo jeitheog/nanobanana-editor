@@ -54,7 +54,7 @@ const dom = {
 
 // ── Initialization ────────────────────────────────────────
 function init() {
-    if (state.apiKey) {
+    if (state.modelName === 'imagen-3' || state.apiKey) {
         setupAI();
     } else {
         showModal();
@@ -63,9 +63,14 @@ function init() {
 }
 
 function setupAI(modelName = state.modelName) {
+    state.modelName = modelName;
+    if (modelName === 'imagen-3') {
+        // Imagen 3 uses the backend proxy — no Gemini client needed
+        state.model = { _isImagen3: true };
+        return;
+    }
     if (!state.apiKey) return;
     state.genAI = new GoogleGenerativeAI(state.apiKey);
-    state.modelName = modelName;
     state.model = state.genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -122,7 +127,41 @@ function attachEventListeners() {
 async function generateImage() {
     const prompt = dom.promptInput.value.trim();
     if (!prompt) return;
-    processRequest(prompt);
+    if (state.modelName === 'imagen-3') {
+        generateWithImagen3(prompt);
+    } else {
+        processRequest(prompt);
+    }
+}
+
+async function generateWithImagen3(prompt) {
+    setGenerating(true);
+    try {
+        const response = await fetch('/api/imagen', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt })
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+            throw new Error(err.error || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const prediction = data.predictions?.[0];
+        if (!prediction?.bytesBase64Encoded) throw new Error('No se recibió imagen de Vertex AI.');
+
+        const mimeType = prediction.mimeType || 'image/png';
+        const imageUrl = `data:${mimeType};base64,${prediction.bytesBase64Encoded}`;
+        displayFinalImage(imageUrl, prompt);
+
+    } catch (err) {
+        console.error('Imagen 3 error:', err);
+        alert(`Error con Imagen 3:\n${err.message}\n\nAsegúrate de que el servidor proxy está corriendo (npm run server).`);
+    } finally {
+        setGenerating(false);
+    }
 }
 
 async function translateTextImage() {
@@ -186,22 +225,27 @@ async function processRequest(prompt, isMultimodal = false, attempt = 0) {
 
         const errorHint = error.message || "";
 
-        // Smarter Fallback Logic
-        if ((errorHint.includes('404') || errorHint.includes('not found')) && attempt < MODEL_FALLBACKS.length - 1) {
+        // Smarter Fallback Logic for 404 (Not Found) or 429 (Quota Exceeded)
+        const isQuotaError = errorHint.includes('429') || errorHint.toLowerCase().includes('quota') || errorHint.toLowerCase().includes('limit');
+        const isNotFoundError = errorHint.includes('404') || errorHint.toLowerCase().includes('not found');
+
+        if ((isQuotaError || isNotFoundError) && attempt < MODEL_FALLBACKS.length - 1) {
             const nextModel = MODEL_FALLBACKS[attempt + 1];
-            console.warn(`Model ${state.modelName} failed. Trying fallback: ${nextModel}`);
+            console.warn(`Model ${state.modelName} failed (${isQuotaError ? 'Quota' : 'Not Found'}). Trying fallback: ${nextModel}`);
             setupAI(nextModel);
+            // Recursive call with next attempt
             return processRequest(prompt, isMultimodal, attempt + 1);
         }
 
         let msg = "Error al conectar con Nano Banana Pro.";
         if (errorHint.includes('API key')) msg = "API Key inválida o desactivada.";
-        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible en tu región. Usa el Diagnóstico en Configuración.";
+        if (isNotFoundError) msg = "No se encontró ningún modelo compatible en tu región. Usa el Diagnóstico en Configuración.";
         if (errorHint.includes('403')) msg = "Permiso denegado (403). Tu API Key no tiene acceso a este modelo.";
+        if (isQuotaError) msg = "Has agotado la cuota gratuita de Nano Banana Pro (Gemini). Espera un minuto o cambia de modelo.";
         if (errorHint.includes('canvas') || errorHint.includes('image')) msg = "Error al procesar la imagen seleccionada.";
 
         if (attempt >= MODEL_FALLBACKS.length - 1) {
-            alert(`Todos los modelos fallaron.\n\nPrueba a usar el botón 'Diagnosticar Modelos' en Configuración para encontrar uno activo.`);
+            alert(`Todos los modelos fallaron o agotaron su cuota.\n\nPrueba a usar el botón 'Diagnosticar Modelos' en Configuración o espera un momento.`);
         } else {
             alert(`${msg}\n\nDetalle: ${errorHint}`);
         }
@@ -330,7 +374,7 @@ function setGenerating(status) {
 function showModal() {
     dom.apiKeyInput.value = state.apiKey;
     // Check if current model is in standard list
-    const isStandard = ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-2.0-flash-exp'].includes(state.modelName);
+    const isStandard = ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-2.0-flash-exp', 'imagen-3'].includes(state.modelName);
 
     if (isStandard) {
         dom.modelSelect.value = state.modelName;
@@ -351,13 +395,20 @@ function saveApiKey() {
         model = dom.customModelInput.value.trim() || 'gemini-1.5-flash-latest';
     }
 
-    if (key) {
-        state.apiKey = key;
+    // Imagen 3 uses backend auth — no API key needed
+    const needsKey = model !== 'imagen-3';
+
+    if (key || !needsKey) {
+        if (key) {
+            state.apiKey = key;
+            localStorage.setItem('nano_banana_api_key', key);
+        }
         state.modelName = model;
-        localStorage.setItem('nano_banana_api_key', key);
         localStorage.setItem('nano_banana_model', model);
         setupAI();
         dom.settingsModal.classList.add('hidden');
+    } else {
+        alert('Por favor, introduce tu API Key de Google AI Studio.');
     }
 }
 
