@@ -27,7 +27,8 @@ const dom = {
     csvFileInput: document.getElementById('csvFileInput'),
     galleryPanel: document.getElementById('galleryPanel'),
     galleryGrid: document.getElementById('galleryGrid'),
-    closeGallery: document.getElementById('closeGallery')
+    closeGallery: document.getElementById('closeGallery'),
+    btnTranslateImage: document.getElementById('btnTranslateImage')
 };
 
 // ── Initialization ────────────────────────────────────────
@@ -56,6 +57,7 @@ function attachEventListeners() {
     dom.btnUploadCSV.addEventListener('click', () => dom.csvFileInput.click());
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
     dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
+    dom.btnTranslateImage.addEventListener('click', translateTextImage);
 
     // Drag and Drop Listeners
     dom.btnUploadCSV.addEventListener('dragover', (e) => {
@@ -89,6 +91,19 @@ function attachEventListeners() {
 async function generateImage() {
     const prompt = dom.promptInput.value.trim();
     if (!prompt) return;
+    processRequest(prompt);
+}
+
+async function translateTextImage() {
+    if (!dom.generatedImage.src || dom.generatedImage.classList.contains('hidden')) {
+        alert('Primero selecciona una imagen de la galería.');
+        return;
+    }
+    const prompt = "haz una imagen igual ha esta manteniedo el producto orginal y solo cambiando el texto al espanol";
+    processRequest(prompt, true);
+}
+
+async function processRequest(prompt, isMultimodal = false) {
     if (!state.model) {
         alert('Por favor, configura tu API Key primero.');
         showModal();
@@ -98,28 +113,50 @@ async function generateImage() {
     setGenerating(true);
 
     try {
-        // Nano Banana Pro usage (Imagen/Gemini multimodal)
-        const result = await state.model.generateContent(prompt);
+        let result;
+        if (isMultimodal) {
+            // Multimodal request: Image + Text
+            const imageData = await fetchImageAsBase64(dom.generatedImage.src);
+            result = await state.model.generateContent([
+                prompt,
+                {
+                    inlineData: {
+                        data: imageData,
+                        mimeType: "image/jpeg"
+                    }
+                }
+            ]);
+        } else {
+            result = await state.model.generateContent(prompt);
+        }
+
         const response = await result.response;
         const text = response.text();
+        console.log("Nano Banana Response:", text);
 
-        // Note: Standard Gemini 1.5 Pro outputs text descriptions/code.
-        // For REAL image generation via API, we would typically use Vertex AI Imagen.
-        // In this simulated 'Nano Banana Pro' UI context, we'll implement a fallback
-        // that creates a 'vibe' if the API doesn't return a direct image blob.
-
-        console.log("Gemini Response:", text);
-
-        // Mocking the image result for the UI demonstration as per guidelines 
-        // using the prompt to describe what we'd see.
+        // Simulation for the UI WOW effect
         showPlaceholderResult(prompt);
 
     } catch (error) {
-        console.error("Error generating image:", error);
-        alert("Error al conectar con Nano Banana Pro. Revisa tu API Key.");
+        console.error("Error with Nano Banana Pro:", error);
+        alert("Error al conectar con Nano Banana Pro. Revisa tu API Key o la imagen.");
     } finally {
         setGenerating(false);
     }
+}
+
+async function fetchImageAsBase64(url) {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64data = reader.result.split(',')[1];
+            resolve(base64data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
 }
 
 function showPlaceholderResult(prompt) {
