@@ -10,13 +10,17 @@ const state = {
     history: []
 };
 
-// Exhaustive list prioritizing the image-capable models from the docs
+// Even more exhaustive list including 1.0 versions as ultimate fallbacks
 const MODEL_FALLBACKS = [
-    'gemini-2.0-flash-exp',
     'gemini-1.5-flash-latest',
-    'gemini-1.5-pro-latest',
     'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-exp',
+    'gemini-2.0-flash-lite-preview-02-05',
+    'gemini-1.5-pro-latest',
     'gemini-1.5-pro',
+    'gemini-1.0-pro-vision-latest',
     'gemini-1.5-pro-002',
     'gemini-1.5-flash-8b',
     'gemini-pro-vision'
@@ -37,6 +41,7 @@ const dom = {
     customModelGroup: document.getElementById('customModelGroup'),
     customModelInput: document.getElementById('customModelInput'),
     saveSettings: document.getElementById('saveSettings'),
+    btnDiagnose: document.getElementById('btnDiagnose'),
     btnDownload: document.getElementById('btnDownload'),
     // CSV & Gallery Refs
     btnUploadCSV: document.getElementById('btnUploadCSV'),
@@ -68,6 +73,7 @@ function attachEventListeners() {
     dom.generateBtn.addEventListener('click', generateImage);
     dom.btnSettings.addEventListener('click', showModal);
     dom.saveSettings.addEventListener('click', saveApiKey);
+    dom.btnDiagnose.addEventListener('click', diagnoseModels);
     dom.btnDownload.addEventListener('click', downloadImage);
 
     dom.modelSelect.addEventListener('change', () => {
@@ -190,13 +196,64 @@ async function processRequest(prompt, isMultimodal = false, attempt = 0) {
 
         let msg = "Error al conectar con Nano Banana Pro.";
         if (errorHint.includes('API key')) msg = "API Key inválida o desactivada.";
+        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible en tu región. Usa el Diagnóstico en Configuración.";
         if (errorHint.includes('403')) msg = "Permiso denegado (403). Tu API Key no tiene acceso a este modelo.";
-        if (errorHint.includes('404')) msg = "No se encontró ningún modelo compatible en tu región.";
         if (errorHint.includes('canvas') || errorHint.includes('image')) msg = "Error al procesar la imagen seleccionada.";
 
-        alert(`${msg}\n\nDetalle: ${errorHint}`);
+        if (attempt >= MODEL_FALLBACKS.length - 1) {
+            alert(`Todos los modelos fallaron.\n\nPrueba a usar el botón 'Diagnosticar Modelos' en Configuración para encontrar uno activo.`);
+        } else {
+            alert(`${msg}\n\nDetalle: ${errorHint}`);
+        }
     } finally {
         setGenerating(false);
+    }
+}
+
+async function diagnoseModels() {
+    if (!dom.apiKeyInput.value.trim()) {
+        alert("Primero introduce una API Key.");
+        return;
+    }
+
+    const testKey = dom.apiKeyInput.value.trim();
+    const testGenAI = new GoogleGenerativeAI(testKey);
+    const results = [];
+
+    dom.btnDiagnose.innerText = "⏳ Probando...";
+    dom.btnDiagnose.disabled = true;
+
+    for (const mName of MODEL_FALLBACKS) {
+        try {
+            const m = testGenAI.getGenerativeModel({ model: mName });
+            // Simple ping
+            await m.generateContent("ping");
+            results.push({ name: mName, status: "OK ✅" });
+        } catch (e) {
+            results.push({ name: mName, status: "Error ❌" });
+        }
+    }
+
+    dom.btnDiagnose.innerText = "🔍 Diagnosticar Modelos";
+    dom.btnDiagnose.disabled = false;
+
+    const working = results.filter(r => r.status.includes('OK'));
+    let message = "Resultados del diagnóstico:\n\n";
+    results.forEach(r => message += `${r.name}: ${r.status}\n`);
+
+    if (working.length > 0) {
+        message += `\n¡Encontrado! El mejor modelo para ti es: ${working[0].name}. ¿Quieres seleccionarlo ahora?`;
+        if (confirm(message)) {
+            dom.modelSelect.value = working[0].name;
+            if (dom.modelSelect.value !== working[0].name) {
+                // Was not in dropdown, use custom
+                dom.modelSelect.value = 'custom';
+                dom.customModelGroup.classList.remove('hidden');
+                dom.customModelInput.value = working[0].name;
+            }
+        }
+    } else {
+        alert(message + "\nNingún modelo funcionó. Tu API Key podría estar mal copiada o no tener el servicio 'Generative Language API' habilitado en Google Cloud Console.");
     }
 }
 
