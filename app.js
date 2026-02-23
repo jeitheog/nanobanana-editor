@@ -150,6 +150,7 @@ function displayFinalImage(imageUrl, prompt) {
     dom.loader.classList.add('hidden');
     dom.generatedImage.classList.remove('hidden');
     dom.generatedImage.src = imageUrl;
+    dom.btnDownload.classList.remove('hidden');
 
     state.history.unshift({ prompt, image: imageUrl, timestamp: new Date() });
 }
@@ -160,6 +161,7 @@ function setGenerating(status) {
     dom.loader.classList.toggle('hidden', !status);
     dom.emptyState.classList.toggle('hidden', status);
     dom.generatedImage.classList.toggle('hidden', status);
+    if (status) dom.btnDownload.classList.add('hidden');
 
     dom.generateBtn.querySelector('span').textContent = status ? 'Creando...' : 'Generar';
 }

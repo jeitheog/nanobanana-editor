@@ -25,8 +25,8 @@
 body {
     background: var(--bg-dark);
     color: var(--text-main);
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    overflow-y: auto;
 }
 
 .glass {
@@ -234,6 +234,28 @@ body {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+}
+
+.download-fab {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: var(--accent);
+    color: #111;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    z-index: 10;
+    transition: var(--transition);
+    box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.download-fab:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--accent-glow);
 }
 
 .empty-state {
