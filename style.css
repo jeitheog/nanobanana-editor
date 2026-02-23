@@ -476,8 +476,12 @@ body {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--glass-border);
     overflow: hidden;
-    cursor: pointer;
+    cursor: grab;
     transition: var(--transition);
+}
+
+.gallery-item:active {
+    cursor: grabbing;
 }
 
 .gallery-item:hover {

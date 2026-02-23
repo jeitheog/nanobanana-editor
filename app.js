@@ -56,6 +56,11 @@ function attachEventListeners() {
         const file = e.dataTransfer.files[0];
         if (file && file.type.startsWith('image/')) {
             loadImageFile(file);
+            return;
+        }
+        const url = e.dataTransfer.getData('text/plain');
+        if (url && url.startsWith('http')) {
+            selectImageFromGallery(url);
         }
     });
 
@@ -298,8 +303,13 @@ function renderGallery(products) {
     products.forEach(p => {
         const item = document.createElement('div');
         item.className = 'gallery-item';
+        item.draggable = true;
         item.innerHTML = `<img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">`;
         item.onclick = () => selectImageFromGallery(p.src);
+        item.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', p.src);
+            e.dataTransfer.effectAllowed = 'copy';
+        });
         dom.galleryGrid.appendChild(item);
     });
 }
