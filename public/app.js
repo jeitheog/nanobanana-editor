@@ -139,24 +139,33 @@ async function processRequest(prompt, isMultimodal = false) {
 
     } catch (error) {
         console.error("Error with Nano Banana Pro:", error);
-        alert("Error al conectar con Nano Banana Pro. Revisa tu API Key o la imagen.");
+        let msg = "Error al conectar con Nano Banana Pro.";
+        if (error.message.includes('API key')) msg = "API Key inválida o no configurada.";
+        if (error.message.includes('fetch')) msg = "Error al cargar la imagen. Posible problema de CORS.";
+        alert(`${msg} Revisa la consola para más detalles.`);
     } finally {
         setGenerating(false);
     }
 }
 
 async function fetchImageAsBase64(url) {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64data = reader.result.split(',')[1];
-            resolve(base64data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
+    try {
+        const response = await fetch(url, { mode: 'cors' });
+        if (!response.ok) throw new Error('Network response was not ok');
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64data = reader.result.split(',')[1];
+                resolve(base64data);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    } catch (err) {
+        console.error("CORS/Fetch error:", err);
+        throw new Error("fetching image failed: " + err.message);
+    }
 }
 
 function showPlaceholderResult(prompt) {
@@ -285,7 +294,8 @@ function renderGallery(products) {
     products.forEach(p => {
         const item = document.createElement('div');
         item.className = 'gallery-item';
-        item.innerHTML = `<img src="${p.src}" alt="${p.title}" title="${p.title}">`;
+        // Add crossOrigin to handle Shopify CDN
+        item.innerHTML = `<img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">`;
         item.onclick = () => {
             selectImageFromGallery(p.src);
         };
@@ -297,6 +307,8 @@ function selectImageFromGallery(url) {
     dom.emptyState.classList.add('hidden');
     dom.loader.classList.add('hidden');
     dom.generatedImage.classList.remove('hidden');
+    // Ensure main image also has CORS allowed
+    dom.generatedImage.crossOrigin = "anonymous";
     dom.generatedImage.src = url;
 
     // Smooth transition
