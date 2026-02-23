@@ -20,7 +20,7 @@ export default async function handler(req, res) {
         const form = new FormData();
         form.append('model', 'gpt-image-1');
         form.append('image', blob, 'product.jpg');
-        form.append('prompt', 'Translate all visible text in this image to Spanish. Keep the product, background, colors, lighting, composition, and every visual detail exactly identical. Only change the language of the text.');
+        form.append('prompt', 'Translate all visible text in this image to Spanish. Preserve every visual detail exactly: the product, background, colors, lighting, shadows, textures, and composition must remain photorealistic and identical to the original. The output must look like a real photograph, not a drawing, illustration, painting, or 3D render. Only change the language of the text labels.');
         form.append('n', '1');
         form.append('size', '1024x1024');
 
