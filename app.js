@@ -217,16 +217,7 @@ async function verifyShopifyConnection(isAuto = false) {
 
         if (data.products && data.products.length > 0) {
             state.source = 'shopify';
-            renderGallery(data.products.map(p => ({
-                title: p.title,
-                imageLabel: p.imageLabel || p.title,
-                handle: p.handle,
-                src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
-                id: p.id,
-                imageId: p.imageId,
-                isVariantImage: p.isVariantImage || false,
-                variantTitles: p.variantTitles || []
-            })));
+            renderGallery(data.products.map(p => mapShopifyProduct(p)));
         }
     } catch (err) {
         console.error('Verify error:', err);
@@ -326,17 +317,7 @@ async function loadShopifyProducts() {
 
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-        const products = data.products.map(p => ({
-            id: p.id,
-            imageId: p.imageId,
-            title: p.title,
-            imageLabel: p.imageLabel || p.title,
-            handle: p.handle,
-            src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
-            originalSrc: p.imageSrc,
-            isVariantImage: p.isVariantImage || false,
-            variantTitles: p.variantTitles || []
-        }));
+        const products = data.products.map(p => mapShopifyProduct(p));
 
         state.source = 'shopify';
         renderGallery(products);
@@ -350,6 +331,23 @@ async function loadShopifyProducts() {
         dom.btnLoadShopify.disabled = false;
         dom.btnLoadShopify.innerHTML = '<span class="icon">🛍️</span> Cargar desde Shopify';
     }
+}
+
+function mapShopifyProduct(p) {
+    const proxy = src => `https://images.weserv.nl/?url=${encodeURIComponent(src.split('?')[0])}&output=jpg`;
+    return {
+        id: p.id,
+        title: p.title,
+        handle: p.handle,
+        src: proxy(p.imageSrc),
+        imageId: p.imageId,
+        images: (p.images || [{ id: p.imageId, src: p.imageSrc }]).map(img => ({
+            id: img.id,
+            src: proxy(img.src),
+            isVariantImage: img.isVariantImage || false,
+            variantTitles: img.variantTitles || []
+        }))
+    };
 }
 
 async function uploadToShopify(productId, oldImageId, imageBase64) {
@@ -586,15 +584,13 @@ function renderGalleryItems(products) {
         if (state.selectedIndices.has(i)) item.classList.add('selected');
         item.dataset.index = i;
 
-        const displayLabel = p.imageLabel || p.title;
         item.innerHTML = `
             <div class="img-wrapper">
-                <img src="${p.src}" alt="${displayLabel}" crossorigin="anonymous">
+                <img src="${p.src}" alt="${p.title}" crossorigin="anonymous">
                 <div class="selection-check"></div>
-                ${p.isVariantImage ? '<span class="variant-badge">variante</span>' : ''}
             </div>
             <div class="info">
-                <div class="title">${displayLabel}</div>
+                <div class="title">${p.title}</div>
             </div>
         `;
 
@@ -687,66 +683,74 @@ async function bulkProcess() {
     for (let i = 0; i < selected.length; i++) {
         const index = selected[i];
         const p = state.filteredProducts[index];
-        dom.btnCentralBulkProcess.textContent = `${i + 1}/${selected.length} — ${p.title.substring(0, 20)}...`;
         updateBulkProgress(i, selected.length);
-        setStatus(`Procesando ${i + 1}/${selected.length}: ${p.title.substring(0, 25)}...`);
 
-        try {
-            // 1. Cargar imagen
-            selectImageFromGallery(p.src);
-            await new Promise((resolve, reject) => {
-                if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
-                    resolve();
-                } else {
-                    dom.generatedImage.onload = resolve;
-                    dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
+        // All images for this product (main + variants)
+        const allImages = p.images && p.images.length > 0
+            ? p.images
+            : [{ id: p.imageId, src: p.src }];
+
+        for (let j = 0; j < allImages.length; j++) {
+            const img = allImages[j];
+            const imgLabel = `${p.title.substring(0, 20)} (${j + 1}/${allImages.length})`;
+
+            try {
+                // 1. Cargar imagen
+                selectImageFromGallery(img.src);
+                await new Promise((resolve, reject) => {
+                    if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
+                        resolve();
+                    } else {
+                        dom.generatedImage.onload = resolve;
+                        dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
+                    }
+                });
+
+                // 2. Detectar texto
+                dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
+                const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
+                const hasText = await detectTextInImage(detBase64, detMime);
+
+                if (!hasText) {
+                    skipped++;
+                    continue;
                 }
-            });
 
-            // 2. Detectar si la imagen tiene texto (evitar gastar cuota innecesariamente)
-            setStatus(`Analizando ${i + 1}/${selected.length}: ${p.title.substring(0, 25)}...`);
-            dom.btnCentralBulkProcess.textContent = `🔍 Analizando ${i + 1}/${selected.length}...`;
-            const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
-            const hasText = await detectTextInImage(detBase64, detMime);
+                // 3. Traducir
+                dom.btnCentralBulkProcess.textContent = `🌀 ${i + 1}/${selected.length} — ${imgLabel}`;
+                await translateTextImage();
 
-            if (!hasText) {
-                setStatus(`Sin texto — saltando: ${p.title.substring(0, 25)}`);
-                skipped++;
-                continue;
-            }
+                if (isShopify && p.id) {
+                    // 4a. Subir a Shopify
+                    dom.btnCentralBulkProcess.textContent = `🛍️ ${i + 1}/${selected.length} — ${imgLabel}`;
+                    setGenerating(true);
+                    const base64 = dom.generatedImage.src.split(',')[1];
+                    await uploadToShopify(p.id, img.id, base64);
+                    setGenerating(false);
+                } else {
+                    // 4b. Descargar localmente (modo CSV)
+                    const resLink = document.createElement('a');
+                    resLink.href = dom.generatedImage.src;
+                    resLink.download = `translated_${p.handle || index}_${j}.png`;
+                    document.body.appendChild(resLink);
+                    resLink.click();
+                    document.body.removeChild(resLink);
+                }
 
-            // 3. Traducir
-            dom.btnCentralBulkProcess.textContent = `🌀 Traduciendo ${i + 1}/${selected.length}...`;
-            await translateTextImage();
-
-            if (isShopify && p.id) {
-                // 4a. Subir a Shopify
-                setLoaderText(`Subiendo a Shopify: ${p.title.substring(0, 25)}...`);
-                dom.btnCentralBulkProcess.textContent = `🛍️ Subiendo ${i + 1}/${selected.length}...`;
-                setGenerating(true);
-                const dataUrl = dom.generatedImage.src;
-                const base64 = dataUrl.split(',')[1];
-                await uploadToShopify(p.id, p.imageId, base64);
+                succeeded++;
+            } catch (err) {
+                console.error(`Error producto ${i + 1} imagen ${j + 1} (${p.title}):`, err);
                 setGenerating(false);
-            } else {
-                // 4b. Descargar localmente (modo CSV)
-                const resLink = document.createElement('a');
-                resLink.href = dom.generatedImage.src;
-                resLink.download = `translated_${p.handle || index}.png`;
-                document.body.appendChild(resLink);
-                resLink.click();
-                document.body.removeChild(resLink);
+                failed++;
             }
 
-            succeeded++;
-        } catch (err) {
-            console.error(`Error imagen ${i + 1} (${p.title}):`, err);
-            setGenerating(false);
-            failed++;
+            if (j < allImages.length - 1) {
+                await new Promise(r => setTimeout(r, 800));
+            }
         }
 
         if (i < selected.length - 1) {
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 500));
         }
     }
 

@@ -51,23 +51,20 @@
             </nav>
 
             <div class="sidebar-footer">
+                <button class="tool-btn" id="btnHistory">
+                    <span class="icon">🕐</span> Historial
+                </button>
                 <div class="model-badge">
                     <span class="icon">🎨</span> DALL-E 3 (OpenAI)
                 </div>
             </div>
         </aside>
 
+        <!-- Hidden status text (used by JS internally) -->
+        <span id="statusText" class="hidden"></span>
+
         <!-- Main Workspace -->
         <main class="workspace">
-            <header class="top-bar glass">
-                <div class="status-indicator">
-                    <span class="dot pulse"></span>
-                    <span id="statusText">Listo para crear</span>
-                </div>
-                <div class="actions">
-                    <button class="btn secondary" id="btnHistory">Historial</button>
-                </div>
-            </header>
 
             <!-- Editor View -->
             <div id="editorView" class="view-section">

@@ -28,41 +28,33 @@ export default async function handler(req, res) {
 
         const { products } = await response.json();
 
-        // Build a flat list of ALL images across all products, with variant info
-        const result = [];
+        // One entry per product; each has an `images` array with ALL its images
+        const result = products
+            .filter(p => p.images && p.images.length > 0)
+            .map(p => {
+                // Map imageId → variant titles
+                const imageVariantMap = {};
+                (p.variants || []).forEach(v => {
+                    if (v.image_id) {
+                        if (!imageVariantMap[v.image_id]) imageVariantMap[v.image_id] = [];
+                        imageVariantMap[v.image_id].push(v.title);
+                    }
+                });
 
-        products.forEach(p => {
-            if (!p.images || p.images.length === 0) return;
-
-            // Map imageId → variant titles that use it
-            const imageVariantMap = {};
-            (p.variants || []).forEach(v => {
-                if (v.image_id) {
-                    if (!imageVariantMap[v.image_id]) imageVariantMap[v.image_id] = [];
-                    imageVariantMap[v.image_id].push(v.title);
-                }
-            });
-
-            p.images.forEach((img, imgIndex) => {
-                const variantTitles = imageVariantMap[img.id];
-                const isVariantImage = !!(variantTitles && variantTitles.length > 0);
-
-                result.push({
+                return {
                     id: p.id,
                     title: p.title,
                     handle: p.handle,
-                    imageId: img.id,
-                    imageSrc: img.src,
-                    imageLabel: isVariantImage
-                        ? `${p.title} — ${variantTitles.join(' / ')}`
-                        : p.images.length > 1
-                            ? `${p.title} (${imgIndex + 1}/${p.images.length})`
-                            : p.title,
-                    isVariantImage,
-                    variantTitles: variantTitles || []
-                });
+                    imageSrc: p.images[0].src,   // main image for gallery thumbnail
+                    imageId: p.images[0].id,
+                    images: p.images.map(img => ({
+                        id: img.id,
+                        src: img.src,
+                        isVariantImage: !!(imageVariantMap[img.id]?.length),
+                        variantTitles: imageVariantMap[img.id] || []
+                    }))
+                };
             });
-        });
 
         return res.status(200).json({ products: result });
 
