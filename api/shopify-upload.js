@@ -53,7 +53,7 @@ export default async function handler(req, res) {
             });
         }
 
-        return res.status(200).json({ success: true, newImageId: newImage.id });
+        return res.status(200).json({ success: true, newImageId: newImage.id, newImageSrc: newImage.src });
 
     } catch (err) {
         return res.status(500).json({ error: err.message });

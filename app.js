@@ -341,6 +341,7 @@ function mapShopifyProduct(p) {
         handle: p.handle,
         src: proxy(p.imageSrc),
         imageId: p.imageId,
+        body_html: p.body_html || '',
         images: (p.images || [{ id: p.imageId, src: p.imageSrc }]).map(img => ({
             id: img.id,
             src: proxy(img.src),
@@ -659,6 +660,81 @@ async function bulkDownload() {
     }
 }
 
+async function updateProductDescription(productId, body_html) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
+    const res = await fetch('/api/shopify-update-product', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(shop && token ? { 'x-shopify-shop': shop, 'x-shopify-token': token } : {})
+        },
+        body: JSON.stringify({ productId, body_html })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
+async function processDescriptionImages(p, labelPrefix) {
+    if (!p.body_html || !p.id) return;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(p.body_html, 'text/html');
+    const imgs = Array.from(doc.querySelectorAll('img[src]'))
+        .filter(el => el.src && el.src.startsWith('http'));
+
+    if (imgs.length === 0) return;
+
+    let modified = false;
+
+    for (let k = 0; k < imgs.length; k++) {
+        const imgEl = imgs[k];
+        const originalSrc = imgEl.src;
+        const proxySrc = `https://images.weserv.nl/?url=${encodeURIComponent(originalSrc.split('?')[0])}&output=jpg`;
+
+        // Load image
+        selectImageFromGallery(proxySrc);
+        await new Promise((resolve, reject) => {
+            if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) resolve();
+            else {
+                dom.generatedImage.onload = resolve;
+                dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar imagen de descripción.'));
+            }
+        });
+
+        // Detect text
+        dom.btnCentralBulkProcess.textContent = `🔍 ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
+        const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
+        const hasText = await detectTextInImage(detBase64, detMime);
+
+        if (!hasText) continue;
+
+        // Translate
+        dom.btnCentralBulkProcess.textContent = `🌀 ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
+        await translateTextImage();
+
+        // Upload as product image (no oldImageId — we don't delete description images)
+        dom.btnCentralBulkProcess.textContent = `🛍️ ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
+        setGenerating(true);
+        const base64 = dom.generatedImage.src.split(',')[1];
+        const uploadData = await uploadToShopify(p.id, null, base64);
+        setGenerating(false);
+
+        // Replace img src in parsed HTML with new Shopify CDN URL
+        if (uploadData.newImageSrc) {
+            imgEl.setAttribute('src', uploadData.newImageSrc);
+            modified = true;
+        }
+
+        await new Promise(r => setTimeout(r, 800));
+    }
+
+    if (modified) {
+        await updateProductDescription(p.id, doc.body.innerHTML);
+    }
+}
+
 async function bulkProcess() {
     if (state.isBulkProcessing) return;
     const selected = Array.from(state.selectedIndices);
@@ -746,6 +822,15 @@ async function bulkProcess() {
 
             if (j < allImages.length - 1) {
                 await new Promise(r => setTimeout(r, 800));
+            }
+        }
+
+        // Process description images (only for Shopify products)
+        if (isShopify && p.body_html) {
+            try {
+                await processDescriptionImages(p, `${i + 1}/${selected.length}`);
+            } catch (err) {
+                console.error(`Error en descripción producto ${p.title}:`, err);
             }
         }
 

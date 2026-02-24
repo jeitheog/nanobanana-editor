@@ -16,7 +16,7 @@ export default async function handler(req, res) {
 
     try {
         // Include variants to map variant names to their images
-        const url = `https://${shop}/admin/api/2024-01/products.json?fields=id,title,handle,images,variants&limit=250&status=active`;
+        const url = `https://${shop}/admin/api/2024-01/products.json?fields=id,title,handle,images,variants,body_html&limit=250&status=active`;
         const response = await fetch(url, {
             headers: { 'X-Shopify-Access-Token': token }
         });
@@ -45,8 +45,9 @@ export default async function handler(req, res) {
                     id: p.id,
                     title: p.title,
                     handle: p.handle,
-                    imageSrc: p.images[0].src,   // main image for gallery thumbnail
+                    imageSrc: p.images[0].src,
                     imageId: p.images[0].id,
+                    body_html: p.body_html || '',
                     images: p.images.map(img => ({
                         id: img.id,
                         src: img.src,
