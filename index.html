@@ -46,31 +46,6 @@
                         <span class="icon">📁</span> Cargar CSV
                     </button>
 
-                    <!-- Galería inline — aparece después de cargar productos -->
-                    <div id="gallerySection" class="gallery-section hidden">
-                        <div class="gallery-section-header">
-                            <span id="galleryCount" class="gallery-count"></span>
-                            <div class="gallery-section-actions">
-                                <button id="btnSelectAllGallery" class="icon-btn" title="Seleccionar todo">✓
-                                    Todos</button>
-                                <button id="btnReloadSource" class="icon-btn" title="Recargar">↺</button>
-                            </div>
-                        </div>
-                        <input id="searchInput" type="text" class="search-input" placeholder="🔍 Buscar producto...">
-                        <div id="galleryGrid" class="gallery-grid-inline">
-                            <!-- Products injected here -->
-                        </div>
-                        <div id="bulkActions" class="bulk-actions hidden">
-                            <div class="bulk-info">
-                                <span id="selectedCount">0</span> seleccionadas
-                            </div>
-                            <div id="bulkProgressBar" class="bulk-progress hidden">
-                                <div id="bulkProgressFill" class="bulk-progress-fill"></div>
-                            </div>
-                            <button id="btnBulkProcess" class="btn primary">🛍️ Traducir y subir a Shopify</button>
-                            <button id="btnBulkDownload" class="btn secondary">⬇ Descargar originales</button>
-                        </div>
-                    </div>
                 </div>
 
             </nav>
@@ -94,22 +69,61 @@
                 </div>
             </header>
 
-            <section class="preview-area">
-                <div class="image-container glass" id="imageContainer">
-                    <div class="empty-state" id="dropZone">
-                        <div class="placeholder-icon">🖼️</div>
-                        <p class="drop-title">Insertar imagen</p>
-                        <p class="drop-hint">Arrastra, pega (Ctrl+V) o haz clic</p>
+            <!-- Editor View -->
+            <div id="editorView" class="view-section">
+                <section class="preview-area">
+                    <div class="image-container glass" id="imageContainer">
+                        <div class="empty-state" id="dropZone">
+                            <div class="placeholder-icon">🖼️</div>
+                            <p class="drop-title">Insertar imagen</p>
+                            <p class="drop-hint">Arrastra, pega (Ctrl+V) o haz clic</p>
+                        </div>
+                        <input type="file" id="imgFileInput" accept="image/*" class="hidden">
+                        <img id="generatedImage" class="hidden" alt="Imagen generada">
+                        <button id="btnDownload" class="download-fab hidden">⬇ Descargar</button>
+                        <div id="loader" class="loader hidden">
+                            <div class="spinner"></div>
+                            <p id="loaderText">Procesando...</p>
+                        </div>
                     </div>
-                    <input type="file" id="imgFileInput" accept="image/*" class="hidden">
-                    <img id="generatedImage" class="hidden" alt="Imagen generada">
-                    <button id="btnDownload" class="download-fab hidden">⬇ Descargar</button>
-                    <div id="loader" class="loader hidden">
-                        <div class="spinner"></div>
-                        <p id="loaderText">Procesando...</p>
+                </section>
+            </div>
+
+            <!-- Explorer View (Central Gallery) -->
+            <div id="explorerView" class="view-section hidden">
+                <div class="explorer-header">
+                    <div class="explorer-title-area">
+                        <h2>Explorador de Productos</h2>
+                        <span id="centralGalleryCount" class="badge">0 productos</span>
+                    </div>
+                    <div class="explorer-actions">
+                        <input id="centralSearchInput" type="text" class="search-input"
+                            placeholder="🔍 Buscar en el catálogo...">
+                        <button id="btnSelectAllCentral" class="btn secondary">✓ Todos</button>
+                        <button id="btnReloadSource" class="btn secondary icon-only" title="Recargar">↺</button>
+                        <button id="btnCloseExplorer" class="btn secondary icon-only">✕</button>
                     </div>
                 </div>
-            </section>
+
+                <div class="central-gallery-container glass">
+                    <div id="centralGalleryGrid" class="central-gallery-grid">
+                        <!-- Products injected here -->
+                    </div>
+                </div>
+
+                <div id="centralBulkActions" class="bulk-actions-bar glass hidden">
+                    <div class="bulk-stats">
+                        <span id="centralSelectedCount">0</span> seleccionados
+                        <div id="centralBulkProgressBar" class="progress-mini hidden">
+                            <div id="centralBulkProgressFill" class="progress-fill"></div>
+                        </div>
+                    </div>
+                    <div class="bulk-buttons">
+                        <button id="btnCentralBulkProcess" class="btn primary">🛍️ Traducir y subir a Shopify</button>
+                        <button id="btnCentralBulkDownload" class="btn secondary">⬇ Descargar originales</button>
+                    </div>
+                </div>
+            </div>
 
             <!-- Shopify Integration Section -->
             <div id="shopifySection" class="shopify-card glass">

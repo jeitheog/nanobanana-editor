@@ -24,11 +24,13 @@ const dom = {
     btnLoadShopify: document.getElementById('btnLoadShopify'),
     btnUploadCSV: document.getElementById('btnUploadCSV'),
     csvFileInput: document.getElementById('csvFileInput'),
-    // Gallery
-    gallerySection: document.getElementById('gallerySection'),
-    galleryGrid: document.getElementById('galleryGrid'),
-    galleryCount: document.getElementById('galleryCount'),
-    searchInput: document.getElementById('searchInput'),
+    // Explorer / Central Gallery Redesign
+    shopifyShop: document.getElementById('shopifyShop'),
+    shopifyToken: document.getElementById('shopifyToken'),
+    btnVerifyShopify: document.getElementById('btnVerifyShopify'),
+    shopifyStatus: document.getElementById('shopifyStatus'),
+    shopifyStatusText: document.getElementById('shopifyStatusText'),
+    btnImportShopify: document.getElementById('btnImportShopify'),
     btnReloadSource: document.getElementById('btnReloadSource'),
     btnTranslateImage: document.getElementById('btnTranslateImage'),
     // History
@@ -36,21 +38,20 @@ const dom = {
     historyPanel: document.getElementById('historyPanel'),
     historyGrid: document.getElementById('historyGrid'),
     closeHistory: document.getElementById('closeHistory'),
-    // Bulk
-    btnSelectAllGallery: document.getElementById('btnSelectAllGallery'),
-    bulkActions: document.getElementById('bulkActions'),
-    btnBulkDownload: document.getElementById('btnBulkDownload'),
-    btnBulkProcess: document.getElementById('btnBulkProcess'),
-    selectedCount: document.getElementById('selectedCount'),
-    bulkProgressBar: document.getElementById('bulkProgressBar'),
-    bulkProgressFill: document.getElementById('bulkProgressFill'),
-    // Shopify Integration Section
-    shopifyShop: document.getElementById('shopifyShop'),
-    shopifyToken: document.getElementById('shopifyToken'),
-    btnVerifyShopify: document.getElementById('btnVerifyShopify'),
-    shopifyStatus: document.getElementById('shopifyStatus'),
-    shopifyStatusText: document.getElementById('shopifyStatusText'),
-    btnImportShopify: document.getElementById('btnImportShopify')
+    // Explorer / Central Gallery Redesign
+    editorView: document.getElementById('editorView'),
+    explorerView: document.getElementById('explorerView'),
+    centralGalleryGrid: document.getElementById('centralGalleryGrid'),
+    centralGalleryCount: document.getElementById('centralGalleryCount'),
+    centralSearchInput: document.getElementById('centralSearchInput'),
+    btnSelectAllCentral: document.getElementById('btnSelectAllCentral'),
+    btnCloseExplorer: document.getElementById('btnCloseExplorer'),
+    centralBulkActions: document.getElementById('centralBulkActions'),
+    centralSelectedCount: document.getElementById('centralSelectedCount'),
+    btnCentralBulkProcess: document.getElementById('btnCentralBulkProcess'),
+    btnCentralBulkDownload: document.getElementById('btnCentralBulkDownload'),
+    centralBulkProgressBar: document.getElementById('centralBulkProgressBar'),
+    centralBulkProgressFill: document.getElementById('centralBulkProgressFill')
 };
 
 // ── Initialization ────────────────────────────────────────
@@ -120,8 +121,8 @@ function attachEventListeners() {
 
     // CSV
     dom.btnUploadCSV.addEventListener('click', () => {
-        if (state.source === 'csv' && state.products.length > 0) {
-            dom.gallerySection.classList.toggle('hidden');
+        if (state.products.length > 0) {
+            switchView('explorer');
         } else {
             dom.csvFileInput.click();
         }
@@ -152,36 +153,32 @@ function attachEventListeners() {
         filterGallery(e.target.value.trim());
     });
 
-    // Bulk
-    dom.btnSelectAllGallery.addEventListener('click', selectAllInGallery);
-    dom.btnBulkDownload.addEventListener('click', bulkDownload);
-    dom.btnBulkProcess.addEventListener('click', bulkProcess);
+    // Explorer Listeners
+    dom.btnCloseExplorer.addEventListener('click', () => switchView('editor'));
+    dom.centralSearchInput.addEventListener('input', (e) => filterGallery(e.target.value.trim()));
+    dom.btnSelectAllCentral.addEventListener('click', selectAllInGallery);
+    dom.btnCentralBulkDownload.addEventListener('click', bulkDownload);
+    dom.btnCentralBulkProcess.addEventListener('click', bulkProcess);
+}
 
-    // CSV drag onto button
-    dom.btnUploadCSV.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dom.btnUploadCSV.classList.add('drag-over');
-    });
-    dom.btnUploadCSV.addEventListener('dragleave', () => {
-        dom.btnUploadCSV.classList.remove('drag-over');
-    });
-    dom.btnUploadCSV.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dom.btnUploadCSV.classList.remove('drag-over');
-        const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.csv')) processFile(file);
-    });
-
-    // Shopify Integration Listeners
-    dom.btnVerifyShopify.addEventListener('click', () => verifyShopifyConnection());
-    dom.btnImportShopify.addEventListener('click', bulkImportToShopify);
-    if (dom.shopifyShop && dom.shopifyToken) {
-        [dom.shopifyShop, dom.shopifyToken].forEach(el => {
-            el.addEventListener('input', () => {
-                dom.shopifyStatus.classList.add('hidden');
-                dom.btnImportShopify.disabled = true;
-            });
-        });
+function switchView(viewName) {
+    if (viewName === 'editor') {
+        dom.editorView.classList.remove('hidden');
+        dom.explorerView.classList.add('hidden');
+        dom.btnAI.classList.add('active');
+        dom.btnLoadShopify.classList.remove('active');
+        dom.btnUploadCSV.classList.remove('active');
+    } else {
+        dom.editorView.classList.add('hidden');
+        dom.explorerView.classList.remove('hidden');
+        dom.btnAI.classList.remove('active');
+        if (state.source === 'shopify') {
+            dom.btnLoadShopify.classList.add('active');
+            dom.btnUploadCSV.classList.remove('active');
+        } else if (state.source === 'csv') {
+            dom.btnUploadCSV.classList.add('active');
+            dom.btnLoadShopify.classList.remove('active');
+        }
     }
 }
 
@@ -228,7 +225,6 @@ async function verifyShopifyConnection(isAuto = false) {
                     id: p.id,
                     imageId: p.imageId
                 })));
-                dom.gallerySection.classList.remove('hidden');
             }
         }
     } catch (err) {
@@ -340,8 +336,6 @@ async function loadShopifyProducts() {
 
         state.source = 'shopify';
         renderGallery(products);
-        dom.gallerySection.classList.remove('hidden');
-        dom.btnBulkProcess.textContent = '🛍️ Traducir y subir a Shopify';
         setStatus(`${products.length} productos cargados`);
 
     } catch (err) {
@@ -485,8 +479,6 @@ function processFile(file) {
         if (products.length > 0) {
             state.source = 'csv';
             renderGallery(products);
-            dom.gallerySection.classList.remove('hidden');
-            dom.btnBulkProcess.textContent = '🇪🇸 Traducir en lote';
         } else {
             alert('No se encontraron imágenes de productos en el CSV.');
         }
@@ -543,10 +535,11 @@ function renderGallery(products) {
     state.products = products;
     state.filteredProducts = products;
     state.selectedIndices.clear();
-    dom.searchInput.value = '';
+    dom.centralSearchInput.value = '';
     updateBulkUI();
-    dom.galleryCount.textContent = `${products.length} productos`;
+    dom.centralGalleryCount.textContent = `${products.length} productos`;
     renderGalleryItems(products);
+    switchView('explorer');
 }
 
 function filterGallery(query) {
@@ -558,51 +551,43 @@ function filterGallery(query) {
             p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q)
         );
     }
-    // Clear selection when filtering
     state.selectedIndices.clear();
     updateBulkUI();
     renderGalleryItems(state.filteredProducts);
-    dom.galleryCount.textContent = `${state.filteredProducts.length} / ${state.products.length} productos`;
+    dom.centralGalleryCount.textContent = `${state.filteredProducts.length} / ${state.products.length} productos`;
 }
 
 function renderGalleryItems(products) {
-    dom.galleryGrid.innerHTML = '';
+    dom.centralGalleryGrid.innerHTML = '';
 
     products.forEach((p, i) => {
         const item = document.createElement('div');
-        item.className = 'gallery-item';
+        item.className = 'product-card';
+        if (state.selectedIndices.has(i)) item.classList.add('selected');
         item.dataset.index = i;
-        item.draggable = true;
 
         item.innerHTML = `
-            <div class="item-checkbox">✓</div>
-            <img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">
+            <div class="img-wrapper">
+                <img src="${p.src}" alt="${p.title}" crossorigin="anonymous">
+                <div class="selection-check"></div>
+            </div>
+            <div class="info">
+                <div class="title">${p.title}</div>
+            </div>
         `;
 
-        // Clic en checkbox → seleccionar
-        item.querySelector('.item-checkbox').addEventListener('click', (e) => {
-            e.stopPropagation();
+        item.addEventListener('click', (e) => {
+            // If dragging would be here, but let's stick to click for selection or load
             toggleSelection(i, item);
         });
 
-        // Clic en imagen → cargar en workspace
-        item.addEventListener('click', () => {
+        // Double click to load in editor
+        item.addEventListener('dblclick', () => {
             selectImageFromGallery(p.src);
+            switchView('editor');
         });
 
-        // Long press (móvil)
-        let touchTimer;
-        item.addEventListener('touchstart', () => {
-            touchTimer = setTimeout(() => toggleSelection(i, item), 600);
-        });
-        item.addEventListener('touchend', () => clearTimeout(touchTimer));
-
-        item.addEventListener('dragstart', (e) => {
-            e.dataTransfer.setData('text/plain', p.src);
-            e.dataTransfer.effectAllowed = 'copy';
-        });
-
-        dom.galleryGrid.appendChild(item);
+        dom.centralGalleryGrid.appendChild(item);
     });
 }
 
@@ -619,23 +604,23 @@ function toggleSelection(index, element) {
 
 function updateBulkUI() {
     const count = state.selectedIndices.size;
-    dom.selectedCount.textContent = count;
-    dom.bulkActions.classList.toggle('hidden', count === 0);
+    dom.centralSelectedCount.textContent = count;
+    dom.centralBulkActions.classList.toggle('hidden', count === 0);
     const allSelected = count === state.filteredProducts.length && state.filteredProducts.length > 0;
-    dom.btnSelectAllGallery.textContent = allSelected ? '✗ Ninguno' : '✓ Todos';
+    dom.btnSelectAllCentral.textContent = allSelected ? '✗ Ninguno' : '✓ Todos';
 }
 
 function selectAllInGallery() {
     const shouldDeselect = state.selectedIndices.size === state.filteredProducts.length;
-    const items = dom.galleryGrid.querySelectorAll('.gallery-item');
+    const cards = dom.centralGalleryGrid.querySelectorAll('.product-card');
 
     state.selectedIndices.clear();
-    items.forEach((item, i) => {
+    cards.forEach((card, i) => {
         if (!shouldDeselect) {
             state.selectedIndices.add(i);
-            item.classList.add('selected');
+            card.classList.add('selected');
         } else {
-            item.classList.remove('selected');
+            card.classList.remove('selected');
         }
     });
     updateBulkUI();
@@ -666,11 +651,11 @@ async function bulkProcess() {
     if (!confirm(`¿${action.charAt(0).toUpperCase() + action.slice(1)} ${selected.length} imágenes? Esto usará tu cuota de OpenAI.`)) return;
 
     state.isBulkProcessing = true;
-    dom.btnBulkProcess.disabled = true;
-    dom.btnBulkDownload.disabled = true;
-    const originalText = dom.btnBulkProcess.textContent;
+    dom.btnCentralBulkProcess.disabled = true;
+    dom.btnCentralBulkDownload.disabled = true;
+    const originalText = dom.btnCentralBulkProcess.textContent;
 
-    dom.bulkProgressBar.classList.remove('hidden');
+    dom.centralBulkProgressBar.classList.remove('hidden');
     updateBulkProgress(0, selected.length);
 
     let succeeded = 0;
@@ -679,7 +664,7 @@ async function bulkProcess() {
     for (let i = 0; i < selected.length; i++) {
         const index = selected[i];
         const p = state.filteredProducts[index];
-        dom.btnBulkProcess.textContent = `${i + 1}/${selected.length} — ${p.title.substring(0, 20)}...`;
+        dom.btnCentralBulkProcess.textContent = `${i + 1}/${selected.length} — ${p.title.substring(0, 20)}...`;
         updateBulkProgress(i, selected.length);
         setStatus(`Procesando ${i + 1}/${selected.length}: ${p.title.substring(0, 25)}...`);
 
@@ -730,10 +715,10 @@ async function bulkProcess() {
 
     updateBulkProgress(selected.length, selected.length);
     state.isBulkProcessing = false;
-    dom.btnBulkProcess.disabled = false;
-    dom.btnBulkDownload.disabled = false;
-    dom.btnBulkProcess.textContent = originalText;
-    setTimeout(() => dom.bulkProgressBar.classList.add('hidden'), 2000);
+    dom.btnCentralBulkProcess.disabled = false;
+    dom.btnCentralBulkDownload.disabled = false;
+    dom.btnCentralBulkProcess.textContent = originalText;
+    setTimeout(() => dom.centralBulkProgressBar.classList.add('hidden'), 2000);
 
     const verb = isShopify ? 'subidas a Shopify' : 'descargadas';
     setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}`);
@@ -747,7 +732,7 @@ async function bulkProcess() {
 
 function updateBulkProgress(current, total) {
     const pct = total === 0 ? 0 : Math.round((current / total) * 100);
-    dom.bulkProgressFill.style.width = `${pct}%`;
+    dom.centralBulkProgressFill.style.width = `${pct}%`;
 }
 
 function selectImageFromGallery(url) {
