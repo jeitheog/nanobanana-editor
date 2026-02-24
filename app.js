@@ -661,6 +661,24 @@ async function bulkDownload() {
     }
 }
 
+// Visual fingerprint: render image at 8x8 and hash pixel values
+// Two visually identical images return the same fingerprint regardless of filename
+function getImageFingerprint(imgElement) {
+    try {
+        const SIZE = 8;
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgElement, 0, 0, SIZE, SIZE);
+        const data = ctx.getImageData(0, 0, SIZE, SIZE).data;
+        // Quantize pixel values (reduces false mismatches from minor compression differences)
+        return Array.from(data).map(v => Math.round(v / 16) * 16).join(',');
+    } catch {
+        return null; // CORS or other error — treat as unique to be safe
+    }
+}
+
 // Strips proxy prefix, query params, and Shopify size suffixes for deduplication
 // e.g. image_1024x1024.jpg and image.jpg are the same file
 function normalizeImageUrl(url) {
@@ -841,6 +859,8 @@ async function bulkProcess() {
 
         // Track processed URLs to avoid re-processing the same image in description
         const processedUrls = new Set();
+        // Visual fingerprints to catch content-identical images (e.g. Shopify renames dupes)
+        const seenFingerprints = new Map();
 
         for (let j = 0; j < allImages.length; j++) {
             const img = allImages[j];
@@ -857,6 +877,20 @@ async function bulkProcess() {
                         dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
                     }
                 });
+
+                // 1b. Fingerprint visual — detecta duplicados aunque Shopify haya renombrado el archivo
+                const fingerprint = getImageFingerprint(dom.generatedImage);
+                if (fingerprint && seenFingerprints.has(fingerprint)) {
+                    // Imagen visualmente idéntica a una ya procesada → eliminar y saltar
+                    if (isShopify && img.id) {
+                        await deleteShopifyImages(p.id, [img.id]).catch(err =>
+                            console.error('Error al eliminar duplicado visual:', err)
+                        );
+                    }
+                    skipped++;
+                    continue;
+                }
+                if (fingerprint) seenFingerprints.set(fingerprint, img.id);
 
                 // 2. Detectar texto
                 dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
