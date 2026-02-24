@@ -346,12 +346,13 @@ function mapShopifyProduct(p) {
             id: img.id,
             src: proxy(img.src),
             isVariantImage: img.isVariantImage || false,
-            variantTitles: img.variantTitles || []
+            variantTitles: img.variantTitles || [],
+            variantIds: img.variantIds || []
         }))
     };
 }
 
-async function uploadToShopify(productId, oldImageId, imageBase64) {
+async function uploadToShopify(productId, oldImageId, imageBase64, variantIds = []) {
     const shop = dom.shopifyShop.value.trim();
     const token = dom.shopifyToken.value.trim();
     const res = await fetch('/api/shopify-upload', {
@@ -360,7 +361,7 @@ async function uploadToShopify(productId, oldImageId, imageBase64) {
             'Content-Type': 'application/json',
             ...(shop && token ? { 'x-shopify-shop': shop, 'x-shopify-token': token } : {})
         },
-        body: JSON.stringify({ productId, oldImageId, imageBase64 })
+        body: JSON.stringify({ productId, oldImageId, imageBase64, variantIds })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -660,14 +661,18 @@ async function bulkDownload() {
     }
 }
 
-// Strips proxy prefix and query params to get a canonical image URL for deduplication
+// Strips proxy prefix, query params, and Shopify size suffixes for deduplication
+// e.g. image_1024x1024.jpg and image.jpg are the same file
 function normalizeImageUrl(url) {
     try {
         if (url.includes('images.weserv.nl')) {
             const innerUrl = new URL(url).searchParams.get('url');
             if (innerUrl) url = decodeURIComponent(innerUrl);
         }
-        return url.split('?')[0].toLowerCase();
+        url = url.split('?')[0].toLowerCase();
+        // Strip Shopify size suffixes before the file extension
+        url = url.replace(/_(\d+x\d+|pico|icon|thumb|small|compact|medium|large|grande|master)(?=\.[a-z]+$)/i, '');
+        return url;
     } catch {
         return url.split('?')[0].toLowerCase();
     }
@@ -695,10 +700,13 @@ async function processDescriptionImages(p, labelPrefix, processedUrls = new Set(
     const parser = new DOMParser();
     const doc = parser.parseFromString(p.body_html, 'text/html');
     const imgs = Array.from(doc.querySelectorAll('img[src]'))
-        .filter(el => el.src && el.src.startsWith('http'))
+        .filter(el => {
+            const src = el.getAttribute('src');
+            return src && src.startsWith('http');
+        })
         .filter(el => {
             // Skip images already processed from the product gallery
-            const normalized = normalizeImageUrl(el.src);
+            const normalized = normalizeImageUrl(el.getAttribute('src'));
             if (processedUrls.has(normalized)) return false;
             processedUrls.add(normalized);
             return true;
@@ -710,7 +718,7 @@ async function processDescriptionImages(p, labelPrefix, processedUrls = new Set(
 
     for (let k = 0; k < imgs.length; k++) {
         const imgEl = imgs[k];
-        const originalSrc = imgEl.src;
+        const originalSrc = imgEl.getAttribute('src');
         const proxySrc = `https://images.weserv.nl/?url=${encodeURIComponent(originalSrc.split('?')[0])}&output=jpg`;
 
         // Load image
@@ -833,11 +841,11 @@ async function bulkProcess() {
                 await translateTextImage();
 
                 if (isShopify && p.id) {
-                    // 4a. Subir a Shopify
+                    // 4a. Subir a Shopify (pasa variantIds para reasociar la variante a la imagen nueva)
                     dom.btnCentralBulkProcess.textContent = `🛍️ ${i + 1}/${selected.length} — ${imgLabel}`;
                     setGenerating(true);
                     const base64 = dom.generatedImage.src.split(',')[1];
-                    await uploadToShopify(p.id, img.id, base64);
+                    await uploadToShopify(p.id, img.id, base64, img.variantIds || []);
                     setGenerating(false);
                 } else {
                     // 4b. Descargar localmente (modo CSV)

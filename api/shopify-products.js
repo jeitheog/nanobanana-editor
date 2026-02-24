@@ -32,12 +32,12 @@ export default async function handler(req, res) {
         const result = products
             .filter(p => p.images && p.images.length > 0)
             .map(p => {
-                // Map imageId → variant titles
+                // Map imageId → [{id: variantId, title: variantTitle}]
                 const imageVariantMap = {};
                 (p.variants || []).forEach(v => {
                     if (v.image_id) {
                         if (!imageVariantMap[v.image_id]) imageVariantMap[v.image_id] = [];
-                        imageVariantMap[v.image_id].push(v.title);
+                        imageVariantMap[v.image_id].push({ id: v.id, title: v.title });
                     }
                 });
 
@@ -48,12 +48,16 @@ export default async function handler(req, res) {
                     imageSrc: p.images[0].src,
                     imageId: p.images[0].id,
                     body_html: p.body_html || '',
-                    images: p.images.map(img => ({
-                        id: img.id,
-                        src: img.src,
-                        isVariantImage: !!(imageVariantMap[img.id]?.length),
-                        variantTitles: imageVariantMap[img.id] || []
-                    }))
+                    images: p.images.map(img => {
+                        const variants = imageVariantMap[img.id] || [];
+                        return {
+                            id: img.id,
+                            src: img.src,
+                            isVariantImage: variants.length > 0,
+                            variantTitles: variants.map(v => v.title),
+                            variantIds: variants.map(v => v.id)
+                        };
+                    })
                 };
             });
 

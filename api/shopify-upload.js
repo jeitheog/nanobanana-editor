@@ -12,11 +12,13 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Shopify no configurado en Vercel ni proporcionado en la solicitud.' });
     }
 
-    const { productId, oldImageId, imageBase64 } = req.body;
+    const { productId, oldImageId, imageBase64, variantIds } = req.body;
 
     if (!productId || !imageBase64) {
         return res.status(400).json({ error: 'Faltan productId o imageBase64.' });
     }
+
+    const isVariantImage = Array.isArray(variantIds) && variantIds.length > 0;
 
     const baseUrl = `https://${shop}/admin/api/2024-01`;
     const headers = {
@@ -26,16 +28,14 @@ export default async function handler(req, res) {
 
     try {
         // 1. Subir nueva imagen al producto
+        // Don't force position:1 for variant images (that would replace the main product image)
+        const imagePayload = { attachment: imageBase64, filename: 'translated.png' };
+        if (!isVariantImage) imagePayload.position = 1;
+
         const uploadRes = await fetch(`${baseUrl}/products/${productId}/images.json`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-                image: {
-                    attachment: imageBase64,
-                    filename: 'translated.png',
-                    position: 1
-                }
-            })
+            body: JSON.stringify({ image: imagePayload })
         });
 
         if (!uploadRes.ok) {
@@ -45,7 +45,18 @@ export default async function handler(req, res) {
 
         const { image: newImage } = await uploadRes.json();
 
-        // 2. Eliminar imagen anterior (si existe)
+        // 2. Asociar la nueva imagen a sus variantes (si es imagen de variante)
+        if (isVariantImage) {
+            for (const variantId of variantIds) {
+                await fetch(`${baseUrl}/variants/${variantId}.json`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ variant: { id: variantId, image_id: newImage.id } })
+                });
+            }
+        }
+
+        // 3. Eliminar imagen anterior (si existe)
         if (oldImageId) {
             await fetch(`${baseUrl}/products/${productId}/images/${oldImageId}.json`, {
                 method: 'DELETE',
