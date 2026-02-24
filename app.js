@@ -32,6 +32,7 @@ const dom = {
     shopifyStatusText: document.getElementById('shopifyStatusText'),
     btnImportShopify: document.getElementById('btnImportShopify'),
     btnReloadSource: document.getElementById('btnReloadSource'),
+    btnAI: document.getElementById('btnAI'),
     btnTranslateImage: document.getElementById('btnTranslateImage'),
     // History
     btnHistory: document.getElementById('btnHistory'),
@@ -148,10 +149,9 @@ function attachEventListeners() {
         }
     });
 
-    // Search
-    dom.searchInput.addEventListener('input', (e) => {
-        filterGallery(e.target.value.trim());
-    });
+    // Shopify credentials buttons
+    dom.btnVerifyShopify.addEventListener('click', () => verifyShopifyConnection());
+    dom.btnImportShopify.addEventListener('click', bulkImportToShopify);
 
     // Explorer Listeners
     dom.btnCloseExplorer.addEventListener('click', () => switchView('editor'));
@@ -215,17 +215,15 @@ async function verifyShopifyConnection(isAuto = false) {
         dom.shopifyStatusText.textContent = `Conectado: ${shop}`;
         dom.btnImportShopify.disabled = false;
 
-        if (!isAuto) {
-            if (data.products && data.products.length > 0) {
-                state.source = 'shopify';
-                renderGallery(data.products.map(p => ({
-                    title: p.title,
-                    handle: p.handle,
-                    src: p.imageSrc,
-                    id: p.id,
-                    imageId: p.imageId
-                })));
-            }
+        if (data.products && data.products.length > 0) {
+            state.source = 'shopify';
+            renderGallery(data.products.map(p => ({
+                title: p.title,
+                handle: p.handle,
+                src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
+                id: p.id,
+                imageId: p.imageId
+            })));
         }
     } catch (err) {
         console.error('Verify error:', err);
