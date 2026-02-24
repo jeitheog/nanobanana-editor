@@ -678,6 +678,19 @@ function normalizeImageUrl(url) {
     }
 }
 
+async function deleteShopifyImages(productId, imageIds) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
+    await fetch('/api/shopify-delete-images', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(shop && token ? { 'x-shopify-shop': shop, 'x-shopify-token': token } : {})
+        },
+        body: JSON.stringify({ productId, imageIds })
+    });
+}
+
 async function updateProductDescription(productId, body_html) {
     const shop = dom.shopifyShop.value.trim();
     const token = dom.shopifyToken.value.trim();
@@ -798,14 +811,33 @@ async function bulkProcess() {
         const p = state.filteredProducts[index];
         updateBulkProgress(i, selected.length);
 
-        // All images for this product (main + variants), deduplicated by id
-        const seenImageIds = new Set();
-        const allImages = (p.images?.length > 0 ? p.images : [{ id: p.imageId, src: p.src }])
-            .filter(img => {
-                if (seenImageIds.has(img.id)) return false;
-                seenImageIds.add(img.id);
-                return true;
-            });
+        // ── Step 0: Eliminate duplicate images from Shopify ──────────────
+        // Group images by normalized URL; keep the first, delete the rest
+        const seenNormUrls = new Map(); // normalizedUrl → first image
+        const duplicateIds = [];
+
+        for (const img of (p.images || [])) {
+            const norm = normalizeImageUrl(img.src);
+            if (seenNormUrls.has(norm)) {
+                duplicateIds.push(img.id);
+            } else {
+                seenNormUrls.set(norm, img);
+            }
+        }
+
+        if (isShopify && duplicateIds.length > 0) {
+            dom.btnCentralBulkProcess.textContent = `🗑️ ${i + 1}/${selected.length} — limpiando ${duplicateIds.length} duplicados...`;
+            try {
+                await deleteShopifyImages(p.id, duplicateIds);
+            } catch (err) {
+                console.error(`Error al eliminar duplicados de ${p.title}:`, err);
+            }
+        }
+
+        // All images for this product (main + variants), deduplicated by normalized URL
+        const allImages = seenNormUrls.size > 0
+            ? Array.from(seenNormUrls.values()).filter(img => img.id && img.src)
+            : [{ id: p.imageId, src: p.src, variantIds: [] }];
 
         // Track processed URLs to avoid re-processing the same image in description
         const processedUrls = new Set();
