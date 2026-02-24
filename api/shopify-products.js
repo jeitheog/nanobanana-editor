@@ -5,12 +5,12 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const shop = process.env.SHOPIFY_SHOP;
-    const token = process.env.SHOPIFY_ACCESS_TOKEN;
+    const shop = req.headers['x-shopify-shop'] || process.env.SHOPIFY_SHOP;
+    const token = req.headers['x-shopify-token'] || process.env.SHOPIFY_ACCESS_TOKEN;
 
     if (!shop || !token) {
         return res.status(500).json({
-            error: 'Faltan variables de entorno: SHOPIFY_SHOP y SHOPIFY_ACCESS_TOKEN deben estar configuradas en Vercel.'
+            error: 'Faltan variables de entorno: SHOPIFY_SHOP y SHOPIFY_ACCESS_TOKEN deben estar configuradas en Vercel o proporcionadas en la UI.'
         });
     }
 

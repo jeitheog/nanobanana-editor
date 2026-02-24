@@ -42,12 +42,28 @@ const dom = {
     btnBulkProcess: document.getElementById('btnBulkProcess'),
     selectedCount: document.getElementById('selectedCount'),
     bulkProgressBar: document.getElementById('bulkProgressBar'),
-    bulkProgressFill: document.getElementById('bulkProgressFill')
+    bulkProgressFill: document.getElementById('bulkProgressFill'),
+    // Shopify Integration Section
+    shopifyShop: document.getElementById('shopifyShop'),
+    shopifyToken: document.getElementById('shopifyToken'),
+    btnVerifyShopify: document.getElementById('btnVerifyShopify'),
+    shopifyStatus: document.getElementById('shopifyStatus'),
+    shopifyStatusText: document.getElementById('shopifyStatusText'),
+    btnImportShopify: document.getElementById('btnImportShopify')
 };
 
 // ── Initialization ────────────────────────────────────────
 function init() {
+    loadShopifyCredentials();
     attachEventListeners();
+}
+
+function loadShopifyCredentials() {
+    const shop = localStorage.getItem('shopify_shop');
+    const token = localStorage.getItem('shopify_token');
+    if (shop) dom.shopifyShop.value = shop;
+    if (token) dom.shopifyToken.value = token;
+    if (shop && token) verifyShopifyConnection(true);
 }
 
 function attachEventListeners() {
@@ -154,6 +170,138 @@ function attachEventListeners() {
         const file = e.dataTransfer.files[0];
         if (file && file.name.endsWith('.csv')) processFile(file);
     });
+
+    // Shopify Integration Listeners
+    dom.btnVerifyShopify.addEventListener('click', () => verifyShopifyConnection());
+    dom.btnImportShopify.addEventListener('click', bulkImportToShopify);
+    if (dom.shopifyShop && dom.shopifyToken) {
+        [dom.shopifyShop, dom.shopifyToken].forEach(el => {
+            el.addEventListener('input', () => {
+                dom.shopifyStatus.classList.add('hidden');
+                dom.btnImportShopify.disabled = true;
+            });
+        });
+    }
+}
+
+// ── Shopify Integration Logic ──────────────────────────────
+async function verifyShopifyConnection(isAuto = false) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
+
+    if (!shop || !token) {
+        if (!isAuto) alert('Por favor, introduce el dominio de tu tienda y el Access Token.');
+        return;
+    }
+
+    if (!isAuto) dom.btnVerifyShopify.textContent = 'Verificando...';
+
+    try {
+        const res = await fetch('/api/shopify-products', {
+            headers: {
+                'x-shopify-shop': shop,
+                'x-shopify-token': token
+            }
+        });
+
+        if (!res.ok) throw new Error('Credenciales inválidas o error de conexión.');
+
+        const data = await res.json();
+
+        // Success
+        localStorage.setItem('shopify_shop', shop);
+        localStorage.setItem('shopify_token', token);
+
+        dom.shopifyStatus.classList.remove('hidden', 'error');
+        dom.shopifyStatus.classList.add('connected');
+        dom.shopifyStatusText.textContent = `Conectado: ${shop}`;
+        dom.btnImportShopify.disabled = false;
+
+        if (!isAuto) {
+            if (data.products && data.products.length > 0) {
+                state.source = 'shopify';
+                renderGallery(data.products.map(p => ({
+                    title: p.title,
+                    handle: p.handle,
+                    src: p.imageSrc,
+                    id: p.id,
+                    imageId: p.imageId
+                })));
+                dom.gallerySection.classList.remove('hidden');
+            }
+        }
+    } catch (err) {
+        console.error('Verify error:', err);
+        dom.shopifyStatus.classList.remove('hidden', 'connected');
+        dom.shopifyStatus.classList.add('error');
+        dom.shopifyStatusText.textContent = `Error: ${err.message}`;
+        dom.btnImportShopify.disabled = true;
+    } finally {
+        dom.btnVerifyShopify.textContent = 'Verificar';
+    }
+}
+
+async function bulkImportToShopify() {
+    if (state.isBulkProcessing) return;
+    const selected = Array.from(state.selectedIndices);
+    if (selected.length === 0) {
+        alert('Selecciona productos de la galería primero.');
+        return;
+    }
+
+    if (!confirm(`¿Subir ${selected.length} productos traducidos directamente a Shopify?`)) return;
+
+    state.isBulkProcessing = true;
+    dom.btnImportShopify.disabled = true;
+    const originalText = dom.btnImportShopify.textContent;
+
+    try {
+        for (let i = 0; i < selected.length; i++) {
+            const index = selected[i];
+            const p = state.products[index];
+            dom.btnImportShopify.textContent = `Subiendo ${i + 1}/${selected.length}...`;
+
+            // 1. Select and Process
+            selectImageFromGallery(p.src);
+            await new Promise(r => dom.generatedImage.complete ? r() : dom.generatedImage.onload = r);
+
+            await translateTextImage();
+
+            // 2. Upload to Shopify
+            const { base64 } = getImageBase64(dom.generatedImage);
+            const shop = dom.shopifyShop.value.trim();
+            const token = dom.shopifyToken.value.trim();
+
+            const upRes = await fetch('/api/shopify-upload', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-shopify-shop': shop,
+                    'x-shopify-token': token
+                },
+                body: JSON.stringify({
+                    productId: p.id,
+                    oldImageId: p.imageId,
+                    imageBase64: base64
+                })
+            });
+
+            if (!upRes.ok) {
+                const err = await upRes.json().catch(() => ({}));
+                console.error('Error subiendo a Shopify:', err);
+            }
+
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        alert('¡Importación completada!');
+    } catch (err) {
+        console.error('Bulk import error:', err);
+        alert(`Error en la importación: ${err.message}`);
+    } finally {
+        state.isBulkProcessing = false;
+        dom.btnImportShopify.disabled = false;
+        dom.btnImportShopify.textContent = originalText;
+    }
 }
 
 function loadImageFile(file) {

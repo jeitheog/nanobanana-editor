@@ -51,7 +51,8 @@
                         <div class="gallery-section-header">
                             <span id="galleryCount" class="gallery-count"></span>
                             <div class="gallery-section-actions">
-                                <button id="btnSelectAllGallery" class="icon-btn" title="Seleccionar todo">✓ Todos</button>
+                                <button id="btnSelectAllGallery" class="icon-btn" title="Seleccionar todo">✓
+                                    Todos</button>
                                 <button id="btnReloadSource" class="icon-btn" title="Recargar">↺</button>
                             </div>
                         </div>
@@ -109,6 +110,30 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Shopify Integration Section -->
+            <div id="shopifySection" class="shopify-card glass">
+                <div class="shopify-header">
+                    <span class="shopify-icon">🛍️</span>
+                    <h3>Importar directamente a Shopify</h3>
+                </div>
+                <p class="shopify-hint">Introduce las credenciales de tu tienda para subir los productos traducidos
+                    automáticamente.</p>
+                <div class="shopify-inputs">
+                    <input type="text" id="shopifyShop" placeholder="tu-tienda.myshopify.com">
+                    <div class="token-wrapper">
+                        <input type="password" id="shopifyToken" placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxx">
+                        <button id="btnVerifyShopify" class="btn secondary">Verificar</button>
+                    </div>
+                </div>
+                <div id="shopifyStatus" class="shopify-status hidden">
+                    <span class="status-dot"></span>
+                    <span id="shopifyStatusText">Conectado: ...</span>
+                </div>
+                <button id="btnImportShopify" class="btn primary bulk-import-btn" disabled>
+                    🚀 Importar productos a Shopify
+                </button>
+            </div>
 
         </main>
 
