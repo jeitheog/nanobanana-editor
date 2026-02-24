@@ -18,9 +18,9 @@ const dom = {
     // CSV & Gallery Refs
     btnUploadCSV: document.getElementById('btnUploadCSV'),
     csvFileInput: document.getElementById('csvFileInput'),
-    galleryPanel: document.getElementById('galleryPanel'),
+    gallerySection: document.getElementById('gallerySection'),
     galleryGrid: document.getElementById('galleryGrid'),
-    closeGallery: document.getElementById('closeGallery'),
+    galleryCount: document.getElementById('galleryCount'),
     btnReplaceCSV: document.getElementById('btnReplaceCSV'),
     btnTranslateImage: document.getElementById('btnTranslateImage'),
     // History Refs
@@ -96,13 +96,12 @@ function attachEventListeners() {
     // CSV & Gallery Listeners
     dom.btnUploadCSV.addEventListener('click', () => {
         if (state.products.length > 0) {
-            dom.galleryPanel.classList.toggle('hidden');
+            dom.gallerySection.classList.toggle('hidden');
         } else {
             dom.csvFileInput.click();
         }
     });
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
-    dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
     dom.btnReplaceCSV.addEventListener('click', () => dom.csvFileInput.click());
     dom.btnTranslateImage.addEventListener('click', async () => {
         try {
@@ -118,7 +117,7 @@ function attachEventListeners() {
     dom.btnBulkDownload.addEventListener('click', bulkDownload);
     dom.btnBulkProcess.addEventListener('click', bulkProcess);
 
-    // CSV Drag and Drop
+    // CSV Drag and Drop onto the button
     dom.btnUploadCSV.addEventListener('dragover', (e) => {
         e.preventDefault();
         dom.btnUploadCSV.classList.add('drag-over');
@@ -237,7 +236,6 @@ function setGenerating(status) {
     dom.emptyState.classList.toggle('hidden', status);
     dom.generatedImage.classList.toggle('hidden', status);
     if (status) dom.btnDownload.classList.add('hidden');
-
 }
 
 function downloadImage() {
@@ -261,7 +259,7 @@ function processFile(file) {
         const products = parseShopifyCSV(text);
         if (products.length > 0) {
             renderGallery(products);
-            dom.galleryPanel.classList.remove('hidden');
+            dom.gallerySection.classList.remove('hidden');
         } else {
             alert('No se encontraron imágenes de productos en el CSV.');
         }
@@ -319,6 +317,7 @@ function renderGallery(products) {
     state.products = products;
     state.selectedIndices.clear();
     updateBulkUI();
+    dom.galleryCount.textContent = `${products.length} productos`;
     dom.galleryGrid.innerHTML = '';
 
     products.forEach((p, i) => {
@@ -326,18 +325,25 @@ function renderGallery(products) {
         item.className = 'gallery-item';
         item.dataset.index = i;
         item.draggable = true;
-        item.innerHTML = `<img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">`;
 
-        item.onclick = (e) => {
-            // If shift or ctrl is pressed, or if we are already in "selection mode" (any selected), toggle selection
-            if (e.shiftKey || e.ctrlKey || e.metaKey || state.selectedIndices.size > 0) {
-                toggleSelection(i, item);
-            } else {
-                selectImageFromGallery(p.src);
-            }
-        };
+        // Checkbox clickeable (selección) + imagen (cargar)
+        item.innerHTML = `
+            <div class="item-checkbox">✓</div>
+            <img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">
+        `;
 
-        // Long press for mobile/touch selection
+        // Clic en checkbox → seleccionar (NO carga la imagen)
+        item.querySelector('.item-checkbox').addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleSelection(i, item);
+        });
+
+        // Clic en la imagen → cargar en workspace
+        item.addEventListener('click', () => {
+            selectImageFromGallery(p.src);
+        });
+
+        // Long press en móvil → seleccionar
         let touchTimer;
         item.addEventListener('touchstart', () => {
             touchTimer = setTimeout(() => toggleSelection(i, item), 600);
@@ -348,6 +354,7 @@ function renderGallery(products) {
             e.dataTransfer.setData('text/plain', p.src);
             e.dataTransfer.effectAllowed = 'copy';
         });
+
         dom.galleryGrid.appendChild(item);
     });
 }
@@ -367,7 +374,8 @@ function updateBulkUI() {
     const count = state.selectedIndices.size;
     dom.selectedCount.textContent = count;
     dom.bulkActions.classList.toggle('hidden', count === 0);
-    dom.btnSelectAllGallery.textContent = count === state.products.length ? '✗' : '✓';
+    const allSelected = count === state.products.length && state.products.length > 0;
+    dom.btnSelectAllGallery.textContent = allSelected ? '✗ Ninguno' : '✓ Todos';
 }
 
 function selectAllInGallery() {
@@ -397,7 +405,6 @@ async function bulkDownload() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        // Small delay to prevent browser blocking multiple downloads
         await new Promise(r => setTimeout(r, 200));
     }
 }
@@ -427,10 +434,10 @@ async function bulkProcess() {
         updateBulkProgress(i, selected.length);
 
         try {
-            // 1. Load image in workspace
+            // 1. Cargar imagen en workspace
             selectImageFromGallery(p.src);
 
-            // 2. Wait for image to load
+            // 2. Esperar a que cargue
             await new Promise((resolve, reject) => {
                 if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
                     resolve();
@@ -440,10 +447,10 @@ async function bulkProcess() {
                 }
             });
 
-            // 3. Translate
+            // 3. Traducir
             await translateTextImage();
 
-            // 4. Download result
+            // 4. Descargar resultado
             const resLink = document.createElement('a');
             resLink.href = dom.generatedImage.src;
             resLink.download = `translated_${p.handle || index}.png`;
@@ -457,7 +464,6 @@ async function bulkProcess() {
             failed++;
         }
 
-        // Pausa entre requests para evitar rate limits
         if (i < selected.length - 1) {
             await new Promise(r => setTimeout(r, 1000));
         }
@@ -509,13 +515,13 @@ function renderHistory() {
         item.className = 'gallery-item';
         const time = entry.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
         item.innerHTML = `<img src="${entry.image}" alt="${entry.prompt}" title="${entry.prompt} · ${time}">`;
-        item.onclick = () => {
+        item.addEventListener('click', () => {
             dom.emptyState.classList.add('hidden');
             dom.generatedImage.classList.remove('hidden');
             dom.generatedImage.src = entry.image;
             dom.btnDownload.classList.remove('hidden');
             dom.historyPanel.classList.add('hidden');
-        };
+        });
         dom.historyGrid.appendChild(item);
     });
 }
