@@ -790,8 +790,8 @@ async function bulkProcess() {
     }, 0);
     const productLabel = selected.length === 1 ? '1 producto' : `${selected.length} productos`;
     const confirmMsg = isShopify
-        ? `¿Traducir y subir a Shopify ${productLabel}?\n\n• ${totalProductImages} imágenes de producto (galería + variantes)\n• + imágenes con texto en descripciones\n\nSolo se gasta cuota de OpenAI en imágenes con texto visible.`
-        : `¿Traducir ${productLabel} (${totalProductImages} imágenes)? Esto usará tu cuota de OpenAI.`;
+        ? `¿Procesar ${productLabel}?\n\nSe analizarán ${totalProductImages} imagen(es) de producto + las de la descripción.\n\n✅ Solo se traducen y suben las que tengan texto visible\n⏭️ Las que no tengan texto se saltan automáticamente\n\nSolo pagas cuota de OpenAI por las imágenes con texto.`
+        : `¿Procesar ${productLabel} (${totalProductImages} imágenes)?\n\n✅ Solo se traducen las que tengan texto visible\n⏭️ Las demás se saltan automáticamente`;
     if (!confirm(confirmMsg)) return;
 
     state.isBulkProcessing = true;
