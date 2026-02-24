@@ -9,6 +9,7 @@ const state = {
     source: null         // 'shopify' | 'csv'
 };
 
+// Nano Banana Pro - v1.0.1 (Shopify Integration Update)
 // ── DOM Elements ──────────────────────────────────────────
 const dom = {
     generatedImage: document.getElementById('generatedImage'),
