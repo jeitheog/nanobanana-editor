@@ -2,7 +2,9 @@
 const state = {
     isGenerating: false,
     history: [],
-    products: []
+    products: [],
+    selectedIndices: new Set(),
+    isBulkProcessing: false
 };
 
 // ── DOM Elements ──────────────────────────────────────────
@@ -25,7 +27,15 @@ const dom = {
     btnHistory: document.getElementById('btnHistory'),
     historyPanel: document.getElementById('historyPanel'),
     historyGrid: document.getElementById('historyGrid'),
-    closeHistory: document.getElementById('closeHistory')
+    closeHistory: document.getElementById('closeHistory'),
+    // Bulk DOM
+    btnSelectAllGallery: document.getElementById('btnSelectAllGallery'),
+    bulkActions: document.getElementById('bulkActions'),
+    btnBulkDownload: document.getElementById('btnBulkDownload'),
+    btnBulkProcess: document.getElementById('btnBulkProcess'),
+    selectedCount: document.getElementById('selectedCount'),
+    bulkProgressBar: document.getElementById('bulkProgressBar'),
+    bulkProgressFill: document.getElementById('bulkProgressFill')
 };
 
 // ── Initialization ────────────────────────────────────────
@@ -94,7 +104,19 @@ function attachEventListeners() {
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
     dom.closeGallery.addEventListener('click', () => dom.galleryPanel.classList.add('hidden'));
     dom.btnReplaceCSV.addEventListener('click', () => dom.csvFileInput.click());
-    dom.btnTranslateImage.addEventListener('click', translateTextImage);
+    dom.btnTranslateImage.addEventListener('click', async () => {
+        try {
+            await translateTextImage();
+        } catch (err) {
+            console.error('Error traducción:', err);
+            alert(`Error al traducir imagen:\n${err.message}`);
+        }
+    });
+
+    // Bulk Event Listeners
+    dom.btnSelectAllGallery.addEventListener('click', selectAllInGallery);
+    dom.btnBulkDownload.addEventListener('click', bulkDownload);
+    dom.btnBulkProcess.addEventListener('click', bulkProcess);
 
     // CSV Drag and Drop
     dom.btnUploadCSV.addEventListener('dragover', (e) => {
@@ -129,8 +151,7 @@ function loadImageFile(file) {
 // ── Core Functions ────────────────────────────────────────
 async function translateTextImage() {
     if (dom.generatedImage.classList.contains('hidden') || !dom.generatedImage.src) {
-        alert('Primero selecciona una imagen desde el CSV.');
-        return;
+        throw new Error('Primero selecciona una imagen.');
     }
 
     setGenerating(true);
@@ -154,9 +175,6 @@ async function translateTextImage() {
 
         displayFinalImage(`data:image/png;base64,${item.b64_json}`, 'traducción al español');
 
-    } catch (err) {
-        console.error('Error traducción:', err);
-        alert(`Error al traducir imagen:\n${err.message}`);
     } finally {
         setGenerating(false);
     }
@@ -299,19 +317,170 @@ function parseShopifyCSV(text) {
 
 function renderGallery(products) {
     state.products = products;
+    state.selectedIndices.clear();
+    updateBulkUI();
     dom.galleryGrid.innerHTML = '';
-    products.forEach(p => {
+
+    products.forEach((p, i) => {
         const item = document.createElement('div');
         item.className = 'gallery-item';
+        item.dataset.index = i;
         item.draggable = true;
         item.innerHTML = `<img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">`;
-        item.onclick = () => selectImageFromGallery(p.src);
+
+        item.onclick = (e) => {
+            // If shift or ctrl is pressed, or if we are already in "selection mode" (any selected), toggle selection
+            if (e.shiftKey || e.ctrlKey || e.metaKey || state.selectedIndices.size > 0) {
+                toggleSelection(i, item);
+            } else {
+                selectImageFromGallery(p.src);
+            }
+        };
+
+        // Long press for mobile/touch selection
+        let touchTimer;
+        item.addEventListener('touchstart', () => {
+            touchTimer = setTimeout(() => toggleSelection(i, item), 600);
+        });
+        item.addEventListener('touchend', () => clearTimeout(touchTimer));
+
         item.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', p.src);
             e.dataTransfer.effectAllowed = 'copy';
         });
         dom.galleryGrid.appendChild(item);
     });
+}
+
+function toggleSelection(index, element) {
+    if (state.selectedIndices.has(index)) {
+        state.selectedIndices.delete(index);
+        element.classList.remove('selected');
+    } else {
+        state.selectedIndices.add(index);
+        element.classList.add('selected');
+    }
+    updateBulkUI();
+}
+
+function updateBulkUI() {
+    const count = state.selectedIndices.size;
+    dom.selectedCount.textContent = count;
+    dom.bulkActions.classList.toggle('hidden', count === 0);
+    dom.btnSelectAllGallery.textContent = count === state.products.length ? '✗' : '✓';
+}
+
+function selectAllInGallery() {
+    const shouldDeselect = state.selectedIndices.size === state.products.length;
+    const items = dom.galleryGrid.querySelectorAll('.gallery-item');
+
+    state.selectedIndices.clear();
+    items.forEach((item, i) => {
+        if (!shouldDeselect) {
+            state.selectedIndices.add(i);
+            item.classList.add('selected');
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+    updateBulkUI();
+}
+
+async function bulkDownload() {
+    const selected = Array.from(state.selectedIndices).map(i => state.products[i]);
+    if (selected.length === 0) return;
+
+    for (const [idx, p] of selected.entries()) {
+        const link = document.createElement('a');
+        link.href = p.src;
+        link.download = `banana_${p.handle || idx}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // Small delay to prevent browser blocking multiple downloads
+        await new Promise(r => setTimeout(r, 200));
+    }
+}
+
+async function bulkProcess() {
+    if (state.isBulkProcessing) return;
+    const selected = Array.from(state.selectedIndices);
+    if (selected.length === 0) return;
+
+    if (!confirm(`¿Procesar ${selected.length} imágenes con IA? Esto usará tu cuota de OpenAI.`)) return;
+
+    state.isBulkProcessing = true;
+    dom.btnBulkProcess.disabled = true;
+    dom.btnBulkDownload.disabled = true;
+    const originalText = dom.btnBulkProcess.textContent;
+
+    dom.bulkProgressBar.classList.remove('hidden');
+    updateBulkProgress(0, selected.length);
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let i = 0; i < selected.length; i++) {
+        const index = selected[i];
+        const p = state.products[index];
+        dom.btnBulkProcess.textContent = `Procesando ${i + 1}/${selected.length}...`;
+        updateBulkProgress(i, selected.length);
+
+        try {
+            // 1. Load image in workspace
+            selectImageFromGallery(p.src);
+
+            // 2. Wait for image to load
+            await new Promise((resolve, reject) => {
+                if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
+                    resolve();
+                } else {
+                    dom.generatedImage.onload = resolve;
+                    dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
+                }
+            });
+
+            // 3. Translate
+            await translateTextImage();
+
+            // 4. Download result
+            const resLink = document.createElement('a');
+            resLink.href = dom.generatedImage.src;
+            resLink.download = `translated_${p.handle || index}.png`;
+            document.body.appendChild(resLink);
+            resLink.click();
+            document.body.removeChild(resLink);
+
+            succeeded++;
+        } catch (err) {
+            console.error(`Error imagen ${i + 1} (${p.title}):`, err);
+            failed++;
+        }
+
+        // Pausa entre requests para evitar rate limits
+        if (i < selected.length - 1) {
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+
+    updateBulkProgress(selected.length, selected.length);
+    state.isBulkProcessing = false;
+    dom.btnBulkProcess.disabled = false;
+    dom.btnBulkDownload.disabled = false;
+    dom.btnBulkProcess.textContent = originalText;
+
+    setTimeout(() => dom.bulkProgressBar.classList.add('hidden'), 2000);
+
+    if (failed > 0) {
+        alert(`Lote completado:\n✅ ${succeeded} traducidas\n❌ ${failed} fallidas`);
+    } else {
+        alert(`¡Lote completado! ${succeeded} imágenes traducidas y descargadas.`);
+    }
+}
+
+function updateBulkProgress(current, total) {
+    const pct = total === 0 ? 0 : Math.round((current / total) * 100);
+    dom.bulkProgressFill.style.width = `${pct}%`;
 }
 
 function selectImageFromGallery(url) {

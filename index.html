@@ -100,12 +100,23 @@
             <div class="gallery-header">
                 <h2>Galería Shopify</h2>
                 <div class="gallery-header-actions">
+                    <button id="btnSelectAllGallery" class="btn secondary icon-only" title="Seleccionar todo">✓</button>
                     <button id="btnReplaceCSV" class="replace-csv-btn" title="Cargar nuevo CSV">↺</button>
                     <button id="closeGallery" class="close-btn">&times;</button>
                 </div>
             </div>
             <div id="galleryGrid" class="gallery-grid">
                 <!-- Products will be injected here -->
+            </div>
+            <div id="bulkActions" class="bulk-actions hidden">
+                <div class="bulk-info">
+                    <span id="selectedCount">0</span> imágenes seleccionadas
+                </div>
+                <div id="bulkProgressBar" class="bulk-progress hidden">
+                    <div id="bulkProgressFill" class="bulk-progress-fill"></div>
+                </div>
+                <button id="btnBulkProcess" class="btn primary">🇪🇸 Traducir en lote</button>
+                <button id="btnBulkDownload" class="btn secondary">⬇ Descargar originales</button>
             </div>
         </div>
 
