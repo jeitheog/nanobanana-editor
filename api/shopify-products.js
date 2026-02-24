@@ -15,7 +15,8 @@ export default async function handler(req, res) {
     }
 
     try {
-        const url = `https://${shop}/admin/api/2024-01/products.json?fields=id,title,handle,images&limit=250&status=active`;
+        // Include variants to map variant names to their images
+        const url = `https://${shop}/admin/api/2024-01/products.json?fields=id,title,handle,images,variants&limit=250&status=active`;
         const response = await fetch(url, {
             headers: { 'X-Shopify-Access-Token': token }
         });
@@ -27,16 +28,41 @@ export default async function handler(req, res) {
 
         const { products } = await response.json();
 
-        // Solo productos con al menos una imagen
-        const result = products
-            .filter(p => p.images && p.images.length > 0)
-            .map(p => ({
-                id: p.id,
-                title: p.title,
-                handle: p.handle,
-                imageId: p.images[0].id,
-                imageSrc: p.images[0].src
-            }));
+        // Build a flat list of ALL images across all products, with variant info
+        const result = [];
+
+        products.forEach(p => {
+            if (!p.images || p.images.length === 0) return;
+
+            // Map imageId → variant titles that use it
+            const imageVariantMap = {};
+            (p.variants || []).forEach(v => {
+                if (v.image_id) {
+                    if (!imageVariantMap[v.image_id]) imageVariantMap[v.image_id] = [];
+                    imageVariantMap[v.image_id].push(v.title);
+                }
+            });
+
+            p.images.forEach((img, imgIndex) => {
+                const variantTitles = imageVariantMap[img.id];
+                const isVariantImage = !!(variantTitles && variantTitles.length > 0);
+
+                result.push({
+                    id: p.id,
+                    title: p.title,
+                    handle: p.handle,
+                    imageId: img.id,
+                    imageSrc: img.src,
+                    imageLabel: isVariantImage
+                        ? `${p.title} — ${variantTitles.join(' / ')}`
+                        : p.images.length > 1
+                            ? `${p.title} (${imgIndex + 1}/${p.images.length})`
+                            : p.title,
+                    isVariantImage,
+                    variantTitles: variantTitles || []
+                });
+            });
+        });
 
         return res.status(200).json({ products: result });
 

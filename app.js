@@ -219,10 +219,13 @@ async function verifyShopifyConnection(isAuto = false) {
             state.source = 'shopify';
             renderGallery(data.products.map(p => ({
                 title: p.title,
+                imageLabel: p.imageLabel || p.title,
                 handle: p.handle,
                 src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
                 id: p.id,
-                imageId: p.imageId
+                imageId: p.imageId,
+                isVariantImage: p.isVariantImage || false,
+                variantTitles: p.variantTitles || []
             })));
         }
     } catch (err) {
@@ -327,9 +330,12 @@ async function loadShopifyProducts() {
             id: p.id,
             imageId: p.imageId,
             title: p.title,
+            imageLabel: p.imageLabel || p.title,
             handle: p.handle,
             src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
-            originalSrc: p.imageSrc
+            originalSrc: p.imageSrc,
+            isVariantImage: p.isVariantImage || false,
+            variantTitles: p.variantTitles || []
         }));
 
         state.source = 'shopify';
@@ -347,14 +353,30 @@ async function loadShopifyProducts() {
 }
 
 async function uploadToShopify(productId, oldImageId, imageBase64) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
     const res = await fetch('/api/shopify-upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...(shop && token ? { 'x-shopify-shop': shop, 'x-shopify-token': token } : {})
+        },
         body: JSON.stringify({ productId, oldImageId, imageBase64 })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
+}
+
+async function detectTextInImage(base64, mimeType) {
+    const res = await fetch('/api/detect-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType })
+    });
+    if (!res.ok) return true; // En caso de error, asumir que hay texto (no saltarse)
+    const data = await res.json();
+    return data.hasText === true;
 }
 
 // ── Core Functions ────────────────────────────────────────
@@ -564,13 +586,15 @@ function renderGalleryItems(products) {
         if (state.selectedIndices.has(i)) item.classList.add('selected');
         item.dataset.index = i;
 
+        const displayLabel = p.imageLabel || p.title;
         item.innerHTML = `
             <div class="img-wrapper">
-                <img src="${p.src}" alt="${p.title}" crossorigin="anonymous">
+                <img src="${p.src}" alt="${displayLabel}" crossorigin="anonymous">
                 <div class="selection-check"></div>
+                ${p.isVariantImage ? '<span class="variant-badge">variante</span>' : ''}
             </div>
             <div class="info">
-                <div class="title">${p.title}</div>
+                <div class="title">${displayLabel}</div>
             </div>
         `;
 
@@ -658,6 +682,7 @@ async function bulkProcess() {
 
     let succeeded = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (let i = 0; i < selected.length; i++) {
         const index = selected[i];
@@ -678,19 +703,33 @@ async function bulkProcess() {
                 }
             });
 
-            // 2. Traducir
+            // 2. Detectar si la imagen tiene texto (evitar gastar cuota innecesariamente)
+            setStatus(`Analizando ${i + 1}/${selected.length}: ${p.title.substring(0, 25)}...`);
+            dom.btnCentralBulkProcess.textContent = `🔍 Analizando ${i + 1}/${selected.length}...`;
+            const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
+            const hasText = await detectTextInImage(detBase64, detMime);
+
+            if (!hasText) {
+                setStatus(`Sin texto — saltando: ${p.title.substring(0, 25)}`);
+                skipped++;
+                continue;
+            }
+
+            // 3. Traducir
+            dom.btnCentralBulkProcess.textContent = `🌀 Traduciendo ${i + 1}/${selected.length}...`;
             await translateTextImage();
 
             if (isShopify && p.id) {
-                // 3a. Subir a Shopify
+                // 4a. Subir a Shopify
                 setLoaderText(`Subiendo a Shopify: ${p.title.substring(0, 25)}...`);
+                dom.btnCentralBulkProcess.textContent = `🛍️ Subiendo ${i + 1}/${selected.length}...`;
                 setGenerating(true);
                 const dataUrl = dom.generatedImage.src;
                 const base64 = dataUrl.split(',')[1];
                 await uploadToShopify(p.id, p.imageId, base64);
                 setGenerating(false);
             } else {
-                // 3b. Descargar localmente (modo CSV)
+                // 4b. Descargar localmente (modo CSV)
                 const resLink = document.createElement('a');
                 resLink.href = dom.generatedImage.src;
                 resLink.download = `translated_${p.handle || index}.png`;
@@ -719,13 +758,13 @@ async function bulkProcess() {
     setTimeout(() => dom.centralBulkProgressBar.classList.add('hidden'), 2000);
 
     const verb = isShopify ? 'subidas a Shopify' : 'descargadas';
-    setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}`);
+    const skipNote = skipped > 0 ? `, ${skipped} sin texto (saltadas)` : '';
+    setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}${skipNote}`);
 
-    if (failed > 0) {
-        alert(`Lote completado:\n✅ ${succeeded} ${verb}\n❌ ${failed} fallidas`);
-    } else {
-        alert(`¡Lote completado! ${succeeded} imágenes ${verb}.`);
-    }
+    const lines = [`✅ ${succeeded} ${verb}`];
+    if (skipped > 0) lines.push(`⏭️ ${skipped} sin texto (no se usó cuota)`);
+    if (failed > 0) lines.push(`❌ ${failed} fallidas`);
+    alert(`Lote completado:\n${lines.join('\n')}`);
 }
 
 function updateBulkProgress(current, total) {
