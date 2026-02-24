@@ -2,9 +2,11 @@
 const state = {
     isGenerating: false,
     history: [],
-    products: [],
-    selectedIndices: new Set(),
-    isBulkProcessing: false
+    products: [],        // productos completos (con id, imageId si son de Shopify)
+    filteredProducts: [], // productos filtrados por búsqueda
+    selectedIndices: new Set(), // índices sobre filteredProducts
+    isBulkProcessing: false,
+    source: null         // 'shopify' | 'csv'
 };
 
 // ── DOM Elements ──────────────────────────────────────────
@@ -12,23 +14,28 @@ const dom = {
     generatedImage: document.getElementById('generatedImage'),
     emptyState: document.getElementById('dropZone'),
     loader: document.getElementById('loader'),
+    loaderText: document.getElementById('loaderText'),
+    statusText: document.getElementById('statusText'),
     btnDownload: document.getElementById('btnDownload'),
     imageContainer: document.getElementById('imageContainer'),
     imgFileInput: document.getElementById('imgFileInput'),
-    // CSV & Gallery Refs
+    // Importar
+    btnLoadShopify: document.getElementById('btnLoadShopify'),
     btnUploadCSV: document.getElementById('btnUploadCSV'),
     csvFileInput: document.getElementById('csvFileInput'),
+    // Gallery
     gallerySection: document.getElementById('gallerySection'),
     galleryGrid: document.getElementById('galleryGrid'),
     galleryCount: document.getElementById('galleryCount'),
-    btnReplaceCSV: document.getElementById('btnReplaceCSV'),
+    searchInput: document.getElementById('searchInput'),
+    btnReloadSource: document.getElementById('btnReloadSource'),
     btnTranslateImage: document.getElementById('btnTranslateImage'),
-    // History Refs
+    // History
     btnHistory: document.getElementById('btnHistory'),
     historyPanel: document.getElementById('historyPanel'),
     historyGrid: document.getElementById('historyGrid'),
     closeHistory: document.getElementById('closeHistory'),
-    // Bulk DOM
+    // Bulk
     btnSelectAllGallery: document.getElementById('btnSelectAllGallery'),
     bulkActions: document.getElementById('bulkActions'),
     btnBulkDownload: document.getElementById('btnBulkDownload'),
@@ -69,12 +76,10 @@ function attachEventListeners() {
             return;
         }
         const url = e.dataTransfer.getData('text/plain');
-        if (url && url.startsWith('http')) {
-            selectImageFromGallery(url);
-        }
+        if (url && url.startsWith('http')) selectImageFromGallery(url);
     });
 
-    // Paste image (Ctrl+V)
+    // Paste (Ctrl+V)
     document.addEventListener('paste', (e) => {
         const items = e.clipboardData?.items;
         if (!items) return;
@@ -86,23 +91,36 @@ function attachEventListeners() {
         }
     });
 
-    // History Listeners
+    // History
     dom.btnHistory.addEventListener('click', () => {
         renderHistory();
         dom.historyPanel.classList.toggle('hidden');
     });
     dom.closeHistory.addEventListener('click', () => dom.historyPanel.classList.add('hidden'));
 
-    // CSV & Gallery Listeners
+    // Shopify
+    dom.btnLoadShopify.addEventListener('click', loadShopifyProducts);
+
+    // CSV
     dom.btnUploadCSV.addEventListener('click', () => {
-        if (state.products.length > 0) {
+        if (state.source === 'csv' && state.products.length > 0) {
             dom.gallerySection.classList.toggle('hidden');
         } else {
             dom.csvFileInput.click();
         }
     });
     dom.csvFileInput.addEventListener('change', handleCSVUpload);
-    dom.btnReplaceCSV.addEventListener('click', () => dom.csvFileInput.click());
+
+    // Reload source button (↺)
+    dom.btnReloadSource.addEventListener('click', () => {
+        if (state.source === 'shopify') {
+            loadShopifyProducts();
+        } else {
+            dom.csvFileInput.click();
+        }
+    });
+
+    // Translate
     dom.btnTranslateImage.addEventListener('click', async () => {
         try {
             await translateTextImage();
@@ -112,12 +130,17 @@ function attachEventListeners() {
         }
     });
 
-    // Bulk Event Listeners
+    // Search
+    dom.searchInput.addEventListener('input', (e) => {
+        filterGallery(e.target.value.trim());
+    });
+
+    // Bulk
     dom.btnSelectAllGallery.addEventListener('click', selectAllInGallery);
     dom.btnBulkDownload.addEventListener('click', bulkDownload);
     dom.btnBulkProcess.addEventListener('click', bulkProcess);
 
-    // CSV Drag and Drop onto the button
+    // CSV drag onto button
     dom.btnUploadCSV.addEventListener('dragover', (e) => {
         e.preventDefault();
         dom.btnUploadCSV.classList.add('drag-over');
@@ -129,9 +152,7 @@ function attachEventListeners() {
         e.preventDefault();
         dom.btnUploadCSV.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.csv')) {
-            processFile(file);
-        }
+        if (file && file.name.endsWith('.csv')) processFile(file);
     });
 }
 
@@ -147,12 +168,61 @@ function loadImageFile(file) {
     reader.readAsDataURL(file);
 }
 
+// ── Shopify Integration ───────────────────────────────────
+async function loadShopifyProducts() {
+    setStatus('Cargando productos de Shopify...');
+    dom.btnLoadShopify.disabled = true;
+    dom.btnLoadShopify.textContent = '⏳ Cargando...';
+
+    try {
+        const res = await fetch('/api/shopify-products');
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        const products = data.products.map(p => ({
+            id: p.id,
+            imageId: p.imageId,
+            title: p.title,
+            handle: p.handle,
+            src: `https://images.weserv.nl/?url=${encodeURIComponent(p.imageSrc.split('?')[0])}&output=jpg`,
+            originalSrc: p.imageSrc
+        }));
+
+        state.source = 'shopify';
+        renderGallery(products);
+        dom.gallerySection.classList.remove('hidden');
+        dom.btnBulkProcess.textContent = '🛍️ Traducir y subir a Shopify';
+        setStatus(`${products.length} productos cargados`);
+
+    } catch (err) {
+        console.error('Shopify error:', err);
+        alert(`Error al conectar con Shopify:\n${err.message}\n\nVerifica que SHOPIFY_SHOP y SHOPIFY_ACCESS_TOKEN están configurados en Vercel.`);
+        setStatus('Listo para crear');
+    } finally {
+        dom.btnLoadShopify.disabled = false;
+        dom.btnLoadShopify.innerHTML = '<span class="icon">🛍️</span> Cargar desde Shopify';
+    }
+}
+
+async function uploadToShopify(productId, oldImageId, imageBase64) {
+    const res = await fetch('/api/shopify-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId, oldImageId, imageBase64 })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
 // ── Core Functions ────────────────────────────────────────
 async function translateTextImage() {
     if (dom.generatedImage.classList.contains('hidden') || !dom.generatedImage.src) {
         throw new Error('Primero selecciona una imagen.');
     }
 
+    setLoaderText('Traduciendo texto de la imagen...');
     setGenerating(true);
     try {
         const { base64, mimeType } = getImageBase64(dom.generatedImage);
@@ -192,6 +262,7 @@ function getImageBase64(imgElement) {
 }
 
 async function generateWithDalle3(prompt) {
+    setLoaderText('Generando imagen con DALL-E 3...');
     setGenerating(true);
     try {
         const response = await fetch('/api/dalle', {
@@ -208,9 +279,7 @@ async function generateWithDalle3(prompt) {
         const data = await response.json();
         const item = data.data?.[0];
         if (!item?.b64_json) throw new Error('No se recibió imagen de DALL-E 3.');
-
-        const imageUrl = `data:image/png;base64,${item.b64_json}`;
-        displayFinalImage(imageUrl, prompt);
+        displayFinalImage(`data:image/png;base64,${item.b64_json}`, prompt);
 
     } catch (err) {
         console.error('DALL-E 3 error:', err);
@@ -226,7 +295,6 @@ function displayFinalImage(imageUrl, prompt) {
     dom.generatedImage.classList.remove('hidden');
     dom.generatedImage.src = imageUrl;
     dom.btnDownload.classList.remove('hidden');
-
     state.history.unshift({ prompt, image: imageUrl, timestamp: new Date() });
 }
 
@@ -236,6 +304,14 @@ function setGenerating(status) {
     dom.emptyState.classList.toggle('hidden', status);
     dom.generatedImage.classList.toggle('hidden', status);
     if (status) dom.btnDownload.classList.add('hidden');
+}
+
+function setLoaderText(text) {
+    dom.loaderText.textContent = text;
+}
+
+function setStatus(text) {
+    dom.statusText.textContent = text;
 }
 
 function downloadImage() {
@@ -258,8 +334,10 @@ function processFile(file) {
         const text = event.target.result;
         const products = parseShopifyCSV(text);
         if (products.length > 0) {
+            state.source = 'csv';
             renderGallery(products);
             dom.gallerySection.classList.remove('hidden');
+            dom.btnBulkProcess.textContent = '🇪🇸 Traducir en lote';
         } else {
             alert('No se encontraron imágenes de productos en el CSV.');
         }
@@ -301,11 +379,10 @@ function parseShopifyCSV(text) {
     rows.slice(1).forEach(r => {
         let src = r[imageIdx];
         if (src && src.startsWith('http')) {
-            const proxiedSrc = `https://images.weserv.nl/?url=${encodeURIComponent(src.split('?')[0])}&output=jpg`;
             products.push({
                 title: r[titleIdx] || 'Producto sin título',
                 handle: r[handleIdx] || '',
-                src: proxiedSrc
+                src: `https://images.weserv.nl/?url=${encodeURIComponent(src.split('?')[0])}&output=jpg`
             });
         }
     });
@@ -315,9 +392,31 @@ function parseShopifyCSV(text) {
 
 function renderGallery(products) {
     state.products = products;
+    state.filteredProducts = products;
     state.selectedIndices.clear();
+    dom.searchInput.value = '';
     updateBulkUI();
     dom.galleryCount.textContent = `${products.length} productos`;
+    renderGalleryItems(products);
+}
+
+function filterGallery(query) {
+    if (!query) {
+        state.filteredProducts = state.products;
+    } else {
+        const q = query.toLowerCase();
+        state.filteredProducts = state.products.filter(p =>
+            p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q)
+        );
+    }
+    // Clear selection when filtering
+    state.selectedIndices.clear();
+    updateBulkUI();
+    renderGalleryItems(state.filteredProducts);
+    dom.galleryCount.textContent = `${state.filteredProducts.length} / ${state.products.length} productos`;
+}
+
+function renderGalleryItems(products) {
     dom.galleryGrid.innerHTML = '';
 
     products.forEach((p, i) => {
@@ -326,24 +425,23 @@ function renderGallery(products) {
         item.dataset.index = i;
         item.draggable = true;
 
-        // Checkbox clickeable (selección) + imagen (cargar)
         item.innerHTML = `
             <div class="item-checkbox">✓</div>
             <img src="${p.src}" alt="${p.title}" title="${p.title}" crossorigin="anonymous">
         `;
 
-        // Clic en checkbox → seleccionar (NO carga la imagen)
+        // Clic en checkbox → seleccionar
         item.querySelector('.item-checkbox').addEventListener('click', (e) => {
             e.stopPropagation();
             toggleSelection(i, item);
         });
 
-        // Clic en la imagen → cargar en workspace
+        // Clic en imagen → cargar en workspace
         item.addEventListener('click', () => {
             selectImageFromGallery(p.src);
         });
 
-        // Long press en móvil → seleccionar
+        // Long press (móvil)
         let touchTimer;
         item.addEventListener('touchstart', () => {
             touchTimer = setTimeout(() => toggleSelection(i, item), 600);
@@ -374,12 +472,12 @@ function updateBulkUI() {
     const count = state.selectedIndices.size;
     dom.selectedCount.textContent = count;
     dom.bulkActions.classList.toggle('hidden', count === 0);
-    const allSelected = count === state.products.length && state.products.length > 0;
+    const allSelected = count === state.filteredProducts.length && state.filteredProducts.length > 0;
     dom.btnSelectAllGallery.textContent = allSelected ? '✗ Ninguno' : '✓ Todos';
 }
 
 function selectAllInGallery() {
-    const shouldDeselect = state.selectedIndices.size === state.products.length;
+    const shouldDeselect = state.selectedIndices.size === state.filteredProducts.length;
     const items = dom.galleryGrid.querySelectorAll('.gallery-item');
 
     state.selectedIndices.clear();
@@ -395,7 +493,7 @@ function selectAllInGallery() {
 }
 
 async function bulkDownload() {
-    const selected = Array.from(state.selectedIndices).map(i => state.products[i]);
+    const selected = Array.from(state.selectedIndices).map(i => state.filteredProducts[i]);
     if (selected.length === 0) return;
 
     for (const [idx, p] of selected.entries()) {
@@ -414,7 +512,9 @@ async function bulkProcess() {
     const selected = Array.from(state.selectedIndices);
     if (selected.length === 0) return;
 
-    if (!confirm(`¿Procesar ${selected.length} imágenes con IA? Esto usará tu cuota de OpenAI.`)) return;
+    const isShopify = state.source === 'shopify';
+    const action = isShopify ? 'traducir y subir a Shopify' : 'traducir';
+    if (!confirm(`¿${action.charAt(0).toUpperCase() + action.slice(1)} ${selected.length} imágenes? Esto usará tu cuota de OpenAI.`)) return;
 
     state.isBulkProcessing = true;
     dom.btnBulkProcess.disabled = true;
@@ -429,15 +529,14 @@ async function bulkProcess() {
 
     for (let i = 0; i < selected.length; i++) {
         const index = selected[i];
-        const p = state.products[index];
-        dom.btnBulkProcess.textContent = `Procesando ${i + 1}/${selected.length}...`;
+        const p = state.filteredProducts[index];
+        dom.btnBulkProcess.textContent = `${i + 1}/${selected.length} — ${p.title.substring(0, 20)}...`;
         updateBulkProgress(i, selected.length);
+        setStatus(`Procesando ${i + 1}/${selected.length}: ${p.title.substring(0, 25)}...`);
 
         try {
-            // 1. Cargar imagen en workspace
+            // 1. Cargar imagen
             selectImageFromGallery(p.src);
-
-            // 2. Esperar a que cargue
             await new Promise((resolve, reject) => {
                 if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
                     resolve();
@@ -447,20 +546,31 @@ async function bulkProcess() {
                 }
             });
 
-            // 3. Traducir
+            // 2. Traducir
             await translateTextImage();
 
-            // 4. Descargar resultado
-            const resLink = document.createElement('a');
-            resLink.href = dom.generatedImage.src;
-            resLink.download = `translated_${p.handle || index}.png`;
-            document.body.appendChild(resLink);
-            resLink.click();
-            document.body.removeChild(resLink);
+            if (isShopify && p.id) {
+                // 3a. Subir a Shopify
+                setLoaderText(`Subiendo a Shopify: ${p.title.substring(0, 25)}...`);
+                setGenerating(true);
+                const dataUrl = dom.generatedImage.src;
+                const base64 = dataUrl.split(',')[1];
+                await uploadToShopify(p.id, p.imageId, base64);
+                setGenerating(false);
+            } else {
+                // 3b. Descargar localmente (modo CSV)
+                const resLink = document.createElement('a');
+                resLink.href = dom.generatedImage.src;
+                resLink.download = `translated_${p.handle || index}.png`;
+                document.body.appendChild(resLink);
+                resLink.click();
+                document.body.removeChild(resLink);
+            }
 
             succeeded++;
         } catch (err) {
             console.error(`Error imagen ${i + 1} (${p.title}):`, err);
+            setGenerating(false);
             failed++;
         }
 
@@ -474,13 +584,15 @@ async function bulkProcess() {
     dom.btnBulkProcess.disabled = false;
     dom.btnBulkDownload.disabled = false;
     dom.btnBulkProcess.textContent = originalText;
-
     setTimeout(() => dom.bulkProgressBar.classList.add('hidden'), 2000);
 
+    const verb = isShopify ? 'subidas a Shopify' : 'descargadas';
+    setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}`);
+
     if (failed > 0) {
-        alert(`Lote completado:\n✅ ${succeeded} traducidas\n❌ ${failed} fallidas`);
+        alert(`Lote completado:\n✅ ${succeeded} ${verb}\n❌ ${failed} fallidas`);
     } else {
-        alert(`¡Lote completado! ${succeeded} imágenes traducidas y descargadas.`);
+        alert(`¡Lote completado! ${succeeded} imágenes ${verb}.`);
     }
 }
 
@@ -495,7 +607,6 @@ function selectImageFromGallery(url) {
     dom.generatedImage.classList.remove('hidden');
     dom.generatedImage.crossOrigin = 'anonymous';
     dom.generatedImage.src = url;
-
     dom.generatedImage.style.opacity = '0';
     setTimeout(() => {
         dom.generatedImage.style.opacity = '1';

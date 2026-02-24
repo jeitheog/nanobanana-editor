@@ -39,30 +39,34 @@
 
                 <div class="tool-group">
                     <h3>Importar</h3>
+                    <button class="tool-btn" id="btnLoadShopify">
+                        <span class="icon">🛍️</span> Cargar desde Shopify
+                    </button>
                     <button class="tool-btn" id="btnUploadCSV">
                         <span class="icon">📁</span> Cargar CSV
                     </button>
 
-                    <!-- Inline gallery — appears after CSV is loaded -->
+                    <!-- Galería inline — aparece después de cargar productos -->
                     <div id="gallerySection" class="gallery-section hidden">
                         <div class="gallery-section-header">
                             <span id="galleryCount" class="gallery-count"></span>
                             <div class="gallery-section-actions">
                                 <button id="btnSelectAllGallery" class="icon-btn" title="Seleccionar todo">✓ Todos</button>
-                                <button id="btnReplaceCSV" class="icon-btn" title="Cargar nuevo CSV">↺</button>
+                                <button id="btnReloadSource" class="icon-btn" title="Recargar">↺</button>
                             </div>
                         </div>
+                        <input id="searchInput" type="text" class="search-input" placeholder="🔍 Buscar producto...">
                         <div id="galleryGrid" class="gallery-grid-inline">
                             <!-- Products injected here -->
                         </div>
                         <div id="bulkActions" class="bulk-actions hidden">
                             <div class="bulk-info">
-                                <span id="selectedCount">0</span> imágenes seleccionadas
+                                <span id="selectedCount">0</span> seleccionadas
                             </div>
                             <div id="bulkProgressBar" class="bulk-progress hidden">
                                 <div id="bulkProgressFill" class="bulk-progress-fill"></div>
                             </div>
-                            <button id="btnBulkProcess" class="btn primary">🇪🇸 Traducir en lote</button>
+                            <button id="btnBulkProcess" class="btn primary">🛍️ Traducir y subir a Shopify</button>
                             <button id="btnBulkDownload" class="btn secondary">⬇ Descargar originales</button>
                         </div>
                     </div>
@@ -81,7 +85,8 @@
         <main class="workspace">
             <header class="top-bar glass">
                 <div class="status-indicator">
-                    <span class="dot pulse"></span> Listo para crear
+                    <span class="dot pulse"></span>
+                    <span id="statusText">Listo para crear</span>
                 </div>
                 <div class="actions">
                     <button class="btn secondary" id="btnHistory">Historial</button>
@@ -100,7 +105,7 @@
                     <button id="btnDownload" class="download-fab hidden">⬇ Descargar</button>
                     <div id="loader" class="loader hidden">
                         <div class="spinner"></div>
-                        <p>Generando imagen con DALL-E 3...</p>
+                        <p id="loaderText">Procesando...</p>
                     </div>
                 </div>
             </section>
