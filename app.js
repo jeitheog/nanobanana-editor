@@ -660,6 +660,19 @@ async function bulkDownload() {
     }
 }
 
+// Strips proxy prefix and query params to get a canonical image URL for deduplication
+function normalizeImageUrl(url) {
+    try {
+        if (url.includes('images.weserv.nl')) {
+            const innerUrl = new URL(url).searchParams.get('url');
+            if (innerUrl) url = decodeURIComponent(innerUrl);
+        }
+        return url.split('?')[0].toLowerCase();
+    } catch {
+        return url.split('?')[0].toLowerCase();
+    }
+}
+
 async function updateProductDescription(productId, body_html) {
     const shop = dom.shopifyShop.value.trim();
     const token = dom.shopifyToken.value.trim();
@@ -676,13 +689,20 @@ async function updateProductDescription(productId, body_html) {
     return data;
 }
 
-async function processDescriptionImages(p, labelPrefix) {
+async function processDescriptionImages(p, labelPrefix, processedUrls = new Set()) {
     if (!p.body_html || !p.id) return;
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(p.body_html, 'text/html');
     const imgs = Array.from(doc.querySelectorAll('img[src]'))
-        .filter(el => el.src && el.src.startsWith('http'));
+        .filter(el => el.src && el.src.startsWith('http'))
+        .filter(el => {
+            // Skip images already processed from the product gallery
+            const normalized = normalizeImageUrl(el.src);
+            if (processedUrls.has(normalized)) return false;
+            processedUrls.add(normalized);
+            return true;
+        });
 
     if (imgs.length === 0) return;
 
@@ -741,8 +761,17 @@ async function bulkProcess() {
     if (selected.length === 0) return;
 
     const isShopify = state.source === 'shopify';
-    const action = isShopify ? 'traducir y subir a Shopify' : 'traducir';
-    if (!confirm(`¿${action.charAt(0).toUpperCase() + action.slice(1)} ${selected.length} imágenes? Esto usará tu cuota de OpenAI.`)) return;
+
+    // Count real total images for the confirmation message
+    const totalProductImages = selected.reduce((acc, idx) => {
+        const p = state.filteredProducts[idx];
+        return acc + (p.images?.length || 1);
+    }, 0);
+    const productLabel = selected.length === 1 ? '1 producto' : `${selected.length} productos`;
+    const confirmMsg = isShopify
+        ? `¿Traducir y subir a Shopify ${productLabel}?\n\n• ${totalProductImages} imágenes de producto (galería + variantes)\n• + imágenes con texto en descripciones\n\nSolo se gasta cuota de OpenAI en imágenes con texto visible.`
+        : `¿Traducir ${productLabel} (${totalProductImages} imágenes)? Esto usará tu cuota de OpenAI.`;
+    if (!confirm(confirmMsg)) return;
 
     state.isBulkProcessing = true;
     dom.btnCentralBulkProcess.disabled = true;
@@ -761,10 +790,17 @@ async function bulkProcess() {
         const p = state.filteredProducts[index];
         updateBulkProgress(i, selected.length);
 
-        // All images for this product (main + variants)
-        const allImages = p.images && p.images.length > 0
-            ? p.images
-            : [{ id: p.imageId, src: p.src }];
+        // All images for this product (main + variants), deduplicated by id
+        const seenImageIds = new Set();
+        const allImages = (p.images?.length > 0 ? p.images : [{ id: p.imageId, src: p.src }])
+            .filter(img => {
+                if (seenImageIds.has(img.id)) return false;
+                seenImageIds.add(img.id);
+                return true;
+            });
+
+        // Track processed URLs to avoid re-processing the same image in description
+        const processedUrls = new Set();
 
         for (let j = 0; j < allImages.length; j++) {
             const img = allImages[j];
@@ -813,6 +849,8 @@ async function bulkProcess() {
                     document.body.removeChild(resLink);
                 }
 
+                // Mark this URL as processed so description won't re-translate it
+                processedUrls.add(normalizeImageUrl(img.src));
                 succeeded++;
             } catch (err) {
                 console.error(`Error producto ${i + 1} imagen ${j + 1} (${p.title}):`, err);
@@ -828,7 +866,7 @@ async function bulkProcess() {
         // Process description images (only for Shopify products)
         if (isShopify && p.body_html) {
             try {
-                await processDescriptionImages(p, `${i + 1}/${selected.length}`);
+                await processDescriptionImages(p, `${i + 1}/${selected.length}`, processedUrls);
             } catch (err) {
                 console.error(`Error en descripción producto ${p.title}:`, err);
             }
