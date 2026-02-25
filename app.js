@@ -59,6 +59,7 @@ const dom = {
 function init() {
     loadShopifyCredentials();
     attachEventListeners();
+    checkPendingJob();
 }
 
 function loadShopifyCredentials() {
@@ -831,6 +832,74 @@ async function processDescriptionImages(p, labelPrefix, processedUrls = new Set(
     }
 }
 
+// ── Job Persistence ────────────────────────────────────────
+// Jobs survive browser close, page back, laptop shutdown, and WiFi drops.
+// Each item is marked done/skipped/failed after completion so resume skips them.
+const JOB_KEY = 'nb_job_v1';
+
+function saveJobState(job) {
+    try { localStorage.setItem(JOB_KEY, JSON.stringify(job)); }
+    catch (e) { console.warn('No se pudo guardar estado del job:', e); }
+}
+function loadJobState() {
+    try { return JSON.parse(localStorage.getItem(JOB_KEY) || 'null'); }
+    catch { return null; }
+}
+function clearJobState() { localStorage.removeItem(JOB_KEY); }
+
+function checkPendingJob() {
+    const job = loadJobState();
+    if (!job) return;
+    const pending = job.items.filter(i => i.status === 'pending' || i.status === 'processing').length;
+    if (pending === 0) { clearJobState(); return; }
+
+    const done = job.items.filter(i => i.status === 'done').length;
+    const banner = document.createElement('div');
+    banner.id = 'resumeBanner';
+    banner.className = 'resume-banner';
+    banner.innerHTML = `
+        <span>⚠️ Sesión anterior interrumpida — <strong>${pending}</strong> imagen(es) pendientes${done > 0 ? ` (${done} ya completadas en Shopify)` : ''}</span>
+        <button id="btnResumeJob" class="btn btn-primary btn-sm">▶ Reanudar</button>
+        <button id="btnDiscardJob" class="btn btn-ghost btn-sm">✕ Descartar</button>
+    `;
+    const explorerView = document.getElementById('explorerView');
+    explorerView.insertBefore(banner, explorerView.firstChild);
+
+    document.getElementById('btnResumeJob').addEventListener('click', () => {
+        banner.remove();
+        // Reset any 'processing' items to 'pending' (they were interrupted mid-flight)
+        job.items.filter(i => i.status === 'processing').forEach(i => i.status = 'pending');
+        saveJobState(job);
+        executeJob(job);
+    });
+    document.getElementById('btnDiscardJob').addEventListener('click', () => {
+        clearJobState();
+        banner.remove();
+    });
+}
+
+// Load an image into a standalone element (no shared DOM, safe for concurrent use)
+function loadImageForJob(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const timer = setTimeout(() => reject(new Error('Timeout cargando imagen')), 30000);
+        img.onload = () => { clearTimeout(timer); resolve(img); };
+        img.onerror = () => { clearTimeout(timer); reject(new Error('No se pudo cargar imagen')); };
+        img.src = src;
+    });
+}
+
+function getBase64FromImg(imgEl) {
+    const canvas = document.createElement('canvas');
+    canvas.width = imgEl.naturalWidth || 512;
+    canvas.height = imgEl.naturalHeight || 512;
+    canvas.getContext('2d').drawImage(imgEl, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    return { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+}
+
+// ── bulkProcess: builds job manifest and hands off to executeJob ────────────
 async function bulkProcess() {
     if (state.isBulkProcessing) return;
     const selected = Array.from(state.selectedIndices);
@@ -838,179 +907,186 @@ async function bulkProcess() {
 
     const isShopify = state.source === 'shopify';
 
-    // Count real total images for the confirmation message
-    const totalProductImages = selected.reduce((acc, idx) => {
-        const p = state.products[idx];
-        return acc + (p.images?.length || 1);
-    }, 0);
+    // Build job manifest (URL-dedup per product, same as before)
+    const items = [];
+    for (const index of selected) {
+        const p = state.products[index];
+        const seenNormUrls = new Map();
+        const dupIds = [];
+
+        for (const img of (p.images || [])) {
+            const norm = normalizeImageUrl(img.src);
+            if (seenNormUrls.has(norm)) { dupIds.push(img.id); }
+            else { seenNormUrls.set(norm, img); }
+        }
+
+        // Delete URL-based duplicates immediately (before job starts)
+        if (isShopify && dupIds.length > 0) {
+            deleteShopifyImages(p.id, dupIds).catch(() => {});
+        }
+
+        const allImages = seenNormUrls.size > 0
+            ? Array.from(seenNormUrls.values()).filter(img => img.id && img.src)
+            : [{ id: p.imageId, src: p.src, variantIds: [] }];
+
+        allImages.forEach((img, j) => {
+            items.push({
+                productId: p.id,
+                productTitle: p.title,
+                productHandle: p.handle,
+                imageId: img.id,
+                imageSrc: img.src,
+                variantIds: img.variantIds || [],
+                bodyHtml: j === allImages.length - 1 ? (p.body_html || '') : '', // only last item carries bodyHtml for desc processing
+                isLastOfProduct: j === allImages.length - 1,
+                status: 'pending'
+            });
+        });
+    }
+
     const productLabel = selected.length === 1 ? '1 producto' : `${selected.length} productos`;
     const confirmMsg = isShopify
-        ? `¿Procesar ${productLabel}?\n\nSe analizarán ${totalProductImages} imagen(es) de producto + las de la descripción.\n\n✅ Solo se traducen y suben las que tengan texto visible\n⏭️ Las que no tengan texto se saltan automáticamente\n\nSolo pagas cuota de OpenAI por las imágenes con texto.`
-        : `¿Procesar ${productLabel} (${totalProductImages} imágenes)?\n\n✅ Solo se traducen las que tengan texto visible\n⏭️ Las demás se saltan automáticamente`;
+        ? `¿Procesar ${productLabel}?\n\nSe analizarán ${items.length} imagen(es) + imágenes de descripción.\n\n✅ Solo se traducen y suben las que tengan texto visible\n⏭️ Las demás se saltan sin gasto de cuota\n💾 El progreso se guarda: puedes cerrar el navegador y reanudar`
+        : `¿Procesar ${productLabel} (${items.length} imágenes)?`;
     if (!confirm(confirmMsg)) return;
 
+    const job = { id: 'job_' + Date.now(), isShopify, items };
+    saveJobState(job);
+    await executeJob(job);
+    clearJobState();
+}
+
+// ── executeJob: the actual processing engine ───────────────────────────────
+async function executeJob(job) {
+    const isShopify = job.isShopify;
     state.isBulkProcessing = true;
     dom.btnCentralBulkProcess.disabled = true;
     dom.btnCentralBulkDownload.disabled = true;
     const originalText = dom.btnCentralBulkProcess.textContent;
-
     dom.centralBulkProgressBar.classList.remove('hidden');
-    updateBulkProgress(0, selected.length);
 
     let succeeded = 0;
     let failed = 0;
     let skipped = 0;
 
-    for (let i = 0; i < selected.length; i++) {
-        const index = selected[i];
-        const p = state.products[index]; // global index → always correct regardless of active filter
-        updateBulkProgress(i, selected.length);
+    const pendingItems = job.items.filter(i => i.status === 'pending');
+    const total = pendingItems.length;
+    let processed = 0;
 
-        // ── Step 0: Eliminate duplicate images from Shopify ──────────────
-        // Group images by normalized URL; keep the first, delete the rest
-        const seenNormUrls = new Map(); // normalizedUrl → first image
-        const duplicateIds = [];
+    // Per-product fingerprint maps (reset on resume — acceptable trade-off)
+    const fpByProduct = {};
 
-        for (const img of (p.images || [])) {
-            const norm = normalizeImageUrl(img.src);
-            if (seenNormUrls.has(norm)) {
-                duplicateIds.push(img.id);
-            } else {
-                seenNormUrls.set(norm, img);
-            }
-        }
+    for (const item of pendingItems) {
+        if (!fpByProduct[item.productId]) fpByProduct[item.productId] = new Map();
+        const seenFingerprints = fpByProduct[item.productId];
 
-        if (isShopify && duplicateIds.length > 0) {
-            dom.btnCentralBulkProcess.textContent = `🗑️ ${i + 1}/${selected.length} — limpiando ${duplicateIds.length} duplicados...`;
-            try {
-                await deleteShopifyImages(p.id, duplicateIds);
-            } catch (err) {
-                console.error(`Error al eliminar duplicados de ${p.title}:`, err);
-            }
-        }
+        processed++;
+        updateBulkProgress(processed - 1, total);
+        item.status = 'processing';
+        saveJobState(job);
 
-        // All images for this product (main + variants), deduplicated by normalized URL
-        const allImages = seenNormUrls.size > 0
-            ? Array.from(seenNormUrls.values()).filter(img => img.id && img.src)
-            : [{ id: p.imageId, src: p.src, variantIds: [] }];
+        const label = item.productTitle.substring(0, 22);
 
-        // Track processed URLs to avoid re-processing the same image in description
-        const processedUrls = new Set();
-        // Visual fingerprints: fingerprint → { imgId, newImgId }
-        // newImgId is filled after translation+upload so duplicate variants can be re-associated
-        const seenFingerprints = new Map();
+        try {
+            // 1. Load image independently (safe even if tab is minimized)
+            dom.btnCentralBulkProcess.textContent = `⏳ ${processed}/${total} — ${label}`;
+            const imgEl = await loadImageForJob(item.imageSrc);
 
-        for (let j = 0; j < allImages.length; j++) {
-            const img = allImages[j];
-            const imgLabel = `${p.title.substring(0, 20)} (${j + 1}/${allImages.length})`;
-
-            try {
-                // 1. Cargar imagen
-                selectImageFromGallery(img.src);
-                await new Promise((resolve, reject) => {
-                    if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) {
-                        resolve();
-                    } else {
-                        dom.generatedImage.onload = resolve;
-                        dom.generatedImage.onerror = () => reject(new Error('No se pudo cargar la imagen.'));
+            // 2. Fingerprint visual dedup
+            const fingerprint = getImageFingerprint(imgEl);
+            if (fingerprint && seenFingerprints.has(fingerprint)) {
+                const fpEntry = seenFingerprints.get(fingerprint);
+                if (isShopify) {
+                    if (item.variantIds?.length > 0 && fpEntry.newImgId) {
+                        await reassociateVariants(item.variantIds, fpEntry.newImgId).catch(() => {});
+                        await deleteShopifyImages(item.productId, [item.imageId]).catch(() => {});
+                    } else if (!item.variantIds?.length) {
+                        await deleteShopifyImages(item.productId, [item.imageId]).catch(() => {});
                     }
+                }
+                item.status = 'skipped';
+                saveJobState(job);
+                skipped++;
+                continue;
+            }
+            if (fingerprint) seenFingerprints.set(fingerprint, { imgId: item.imageId, newImgId: null });
+
+            // 3. Get base64 from loaded element
+            const { base64: imgBase64, mimeType: imgMime } = getBase64FromImg(imgEl);
+
+            if (isShopify && item.productId) {
+                // 4a. Atomic server call: detect + translate + upload
+                dom.btnCentralBulkProcess.textContent = `⚙️ ${processed}/${total} — ${label}`;
+                const result = await processImageOnServer({
+                    productId: item.productId,
+                    imageId: item.imageId,
+                    imageBase64: imgBase64,
+                    mimeType: imgMime,
+                    variantIds: item.variantIds || []
                 });
 
-                // 1b. Fingerprint visual — detecta duplicados aunque Shopify haya renombrado el archivo
-                const fingerprint = getImageFingerprint(dom.generatedImage);
-                if (fingerprint && seenFingerprints.has(fingerprint)) {
-                    const fpEntry = seenFingerprints.get(fingerprint);
-                    if (isShopify) {
-                        if (img.variantIds?.length > 0) {
-                            if (fpEntry.newImgId) {
-                                // Reasociar la variante a la imagen ya traducida, luego borrar el duplicado
-                                await reassociateVariants(img.variantIds, fpEntry.newImgId)
-                                    .catch(err => console.error('Error reasociando variante duplicada:', err));
-                                await deleteShopifyImages(p.id, [img.id]).catch(() => {});
-                            }
-                            // Si fpEntry.newImgId es null (original sin texto), no borramos
-                        } else {
-                            await deleteShopifyImages(p.id, [img.id]).catch(err =>
-                                console.error('Error al eliminar duplicado visual:', err)
-                            );
-                        }
-                    }
+                if (result.result === 'skipped') {
+                    item.status = 'skipped';
                     skipped++;
-                    continue;
-                }
-                if (fingerprint) seenFingerprints.set(fingerprint, { imgId: img.id, newImgId: null });
-
-                // 2. Obtener base64 para enviar al servidor
-                const { base64: imgBase64, mimeType: imgMime } = getImageBase64(dom.generatedImage);
-
-                if (isShopify && p.id) {
-                    // 3. Procesamiento atómico en servidor: detect + translate + upload en un solo llamado.
-                    //    Si el navegador se cierra, el servidor termina el trabajo.
-                    dom.btnCentralBulkProcess.textContent = `⚙️ ${i + 1}/${selected.length} — ${imgLabel}`;
-                    const result = await processImageOnServer({
-                        productId: p.id,
-                        imageId: img.id,
-                        imageBase64: imgBase64,
-                        mimeType: imgMime,
-                        variantIds: img.variantIds || []
-                    });
-
-                    if (result.result === 'skipped') {
-                        skipped++;
-                        continue;
-                    }
-
-                    // Guardar newImgId para reutilizarlo si hay duplicados visuales de esta imagen
+                } else {
+                    item.status = 'done';
+                    item.newImageId = result.newImageId;
                     if (fingerprint && result.newImageId) {
                         const fpEntry = seenFingerprints.get(fingerprint);
                         if (fpEntry) fpEntry.newImgId = result.newImageId;
                     }
-                } else {
-                    // Modo CSV: detect + translate client-side + descargar localmente
-                    dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
-                    const hasText = await detectTextInImage(imgBase64, imgMime);
-                    if (!hasText) { skipped++; continue; }
-
-                    dom.btnCentralBulkProcess.textContent = `🌀 ${i + 1}/${selected.length} — ${imgLabel}`;
-                    await translateTextImage();
-
-                    const resLink = document.createElement('a');
-                    resLink.href = dom.generatedImage.src;
-                    resLink.download = `translated_${p.handle || index}_${j}.png`;
-                    document.body.appendChild(resLink);
-                    resLink.click();
-                    document.body.removeChild(resLink);
+                    succeeded++;
                 }
-
-                // Marcar URL como procesada para que la descripción no la retraduzca
-                processedUrls.add(normalizeImageUrl(img.src));
-                succeeded++;
-            } catch (err) {
-                console.error(`Error producto ${i + 1} imagen ${j + 1} (${p.title}):`, err);
-                setGenerating(false);
-                failed++;
+            } else {
+                // 4b. CSV mode — detect + translate client-side + download
+                dom.btnCentralBulkProcess.textContent = `🔍 ${processed}/${total} — ${label}`;
+                const hasText = await detectTextInImage(imgBase64, imgMime);
+                if (!hasText) { item.status = 'skipped'; skipped++; }
+                else {
+                    selectImageFromGallery(item.imageSrc);
+                    await new Promise((res, rej) => {
+                        if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) res();
+                        else { dom.generatedImage.onload = res; dom.generatedImage.onerror = rej; }
+                    });
+                    dom.btnCentralBulkProcess.textContent = `🌀 ${processed}/${total} — ${label}`;
+                    await translateTextImage();
+                    const link = document.createElement('a');
+                    link.href = dom.generatedImage.src;
+                    link.download = `translated_${item.productHandle}_${item.imageId}.png`;
+                    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                    item.status = 'done';
+                    succeeded++;
+                }
             }
-
-            if (j < allImages.length - 1) {
-                await new Promise(r => setTimeout(r, 800));
-            }
+        } catch (err) {
+            console.error(`Error imagen ${item.imageId} (${item.productTitle}):`, err);
+            setGenerating(false);
+            item.status = 'failed';
+            item.error = err.message;
+            failed++;
         }
 
-        // Process description images (only for Shopify products)
-        if (isShopify && p.body_html) {
+        saveJobState(job);
+
+        // After last image of a product, process its description images
+        if (isShopify && item.isLastOfProduct && item.bodyHtml) {
+            const processedUrls = new Set(
+                job.items
+                    .filter(i => i.productId === item.productId && i.status === 'done')
+                    .map(i => normalizeImageUrl(i.imageSrc))
+            );
+            const fakeProduct = { id: item.productId, body_html: item.bodyHtml };
             try {
-                await processDescriptionImages(p, `${i + 1}/${selected.length}`, processedUrls);
+                await processDescriptionImages(fakeProduct, `${processed}/${total}`, processedUrls);
             } catch (err) {
-                console.error(`Error en descripción producto ${p.title}:`, err);
+                console.error(`Error descripción ${item.productTitle}:`, err);
             }
         }
 
-        if (i < selected.length - 1) {
-            await new Promise(r => setTimeout(r, 500));
-        }
+        if (processed < total) await new Promise(r => setTimeout(r, 500));
     }
 
-    updateBulkProgress(selected.length, selected.length);
+    updateBulkProgress(total, total);
     state.isBulkProcessing = false;
     dom.btnCentralBulkProcess.disabled = false;
     dom.btnCentralBulkDownload.disabled = false;
@@ -1018,11 +1094,9 @@ async function bulkProcess() {
     setTimeout(() => dom.centralBulkProgressBar.classList.add('hidden'), 2000);
 
     const verb = isShopify ? 'subidas a Shopify' : 'descargadas';
-    const skipNote = skipped > 0 ? `, ${skipped} sin texto (saltadas)` : '';
-    setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}${skipNote}`);
-
+    setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}${skipped > 0 ? `, ${skipped} saltadas` : ''}`);
     const lines = [`✅ ${succeeded} ${verb}`];
-    if (skipped > 0) lines.push(`⏭️ ${skipped} sin texto (no se usó cuota)`);
+    if (skipped > 0) lines.push(`⏭️ ${skipped} sin texto o duplicadas (sin coste)`);
     if (failed > 0) lines.push(`❌ ${failed} fallidas`);
     alert(`Lote completado:\n${lines.join('\n')}`);
 }

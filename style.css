@@ -646,3 +646,69 @@ body {
     gap: 12px;
     overflow-y: auto;
 }
+
+/* Resume Job Banner */
+.resume-banner {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(250, 204, 21, 0.12);
+    border: 1px solid rgba(250, 204, 21, 0.4);
+    border-radius: 16px;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(250, 204, 21, 0.1);
+    animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+}
+
+@keyframes slideDown {
+    from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0);     opacity: 1; }
+}
+
+.resume-banner span {
+    font-size: 14px;
+    color: var(--text-main);
+}
+
+.resume-banner strong {
+    color: var(--accent);
+}
+
+.resume-banner button {
+    padding: 8px 18px;
+    border-radius: 10px;
+    border: none;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.resume-banner .btn-resume {
+    background: var(--accent);
+    color: #000;
+}
+
+.resume-banner .btn-resume:hover {
+    background: #fde047;
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.resume-banner .btn-discard {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-dim);
+    border: 1px solid var(--glass-border);
+}
+
+.resume-banner .btn-discard:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-main);
+}
