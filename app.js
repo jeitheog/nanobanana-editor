@@ -598,7 +598,7 @@ function filterGallery(query) {
             p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q)
         );
     }
-    state.selectedIndices.clear();
+    // Do NOT clear selectedIndices — selection persists across searches
     updateBulkUI();
     renderGalleryItems(state.filteredProducts);
     dom.centralGalleryCount.textContent = `${state.filteredProducts.length} / ${state.products.length} productos`;
@@ -607,11 +607,13 @@ function filterGallery(query) {
 function renderGalleryItems(products) {
     dom.centralGalleryGrid.innerHTML = '';
 
-    products.forEach((p, i) => {
+    products.forEach((p) => {
+        // Use global index (into state.products) so selection survives filtering
+        const globalIdx = state.products.indexOf(p);
         const item = document.createElement('div');
         item.className = 'product-card';
-        if (state.selectedIndices.has(i)) item.classList.add('selected');
-        item.dataset.index = i;
+        if (state.selectedIndices.has(globalIdx)) item.classList.add('selected');
+        item.dataset.index = globalIdx;
 
         item.innerHTML = `
             <div class="img-wrapper">
@@ -623,12 +625,8 @@ function renderGalleryItems(products) {
             </div>
         `;
 
-        item.addEventListener('click', (e) => {
-            // If dragging would be here, but let's stick to click for selection or load
-            toggleSelection(i, item);
-        });
+        item.addEventListener('click', () => toggleSelection(globalIdx, item));
 
-        // Double click to load in editor
         item.addEventListener('dblclick', () => {
             selectImageFromGallery(p.src);
             switchView('editor');
@@ -653,23 +651,23 @@ function updateBulkUI() {
     const count = state.selectedIndices.size;
     dom.centralSelectedCount.textContent = count;
     dom.centralBulkActions.classList.toggle('hidden', count === 0);
-    const allSelected = count === state.filteredProducts.length && state.filteredProducts.length > 0;
-    dom.btnSelectAllCentral.textContent = allSelected ? '✗ Ninguno' : '✓ Todos';
+    // "All" means all currently visible products are selected
+    const allVisibleSelected = state.filteredProducts.length > 0 &&
+        state.filteredProducts.every(p => state.selectedIndices.has(state.products.indexOf(p)));
+    dom.btnSelectAllCentral.textContent = allVisibleSelected ? '✗ Ninguno' : '✓ Todos';
 }
 
 function selectAllInGallery() {
-    const shouldDeselect = state.selectedIndices.size === state.filteredProducts.length;
-    const cards = dom.centralGalleryGrid.querySelectorAll('.product-card');
+    const allVisibleIndices = state.filteredProducts.map(p => state.products.indexOf(p));
+    const allSelected = allVisibleIndices.every(idx => state.selectedIndices.has(idx));
 
-    state.selectedIndices.clear();
-    cards.forEach((card, i) => {
-        if (!shouldDeselect) {
-            state.selectedIndices.add(i);
-            card.classList.add('selected');
-        } else {
-            card.classList.remove('selected');
-        }
-    });
+    if (allSelected) {
+        // Deselect only the currently visible ones (keep other selections intact)
+        allVisibleIndices.forEach(idx => state.selectedIndices.delete(idx));
+    } else {
+        allVisibleIndices.forEach(idx => state.selectedIndices.add(idx));
+    }
+    renderGalleryItems(state.filteredProducts);
     updateBulkUI();
 }
 
@@ -842,7 +840,7 @@ async function bulkProcess() {
 
     // Count real total images for the confirmation message
     const totalProductImages = selected.reduce((acc, idx) => {
-        const p = state.filteredProducts[idx];
+        const p = state.products[idx];
         return acc + (p.images?.length || 1);
     }, 0);
     const productLabel = selected.length === 1 ? '1 producto' : `${selected.length} productos`;
@@ -865,7 +863,7 @@ async function bulkProcess() {
 
     for (let i = 0; i < selected.length; i++) {
         const index = selected[i];
-        const p = state.filteredProducts[index];
+        const p = state.products[index]; // global index → always correct regardless of active filter
         updateBulkProgress(i, selected.length);
 
         // ── Step 0: Eliminate duplicate images from Shopify ──────────────
