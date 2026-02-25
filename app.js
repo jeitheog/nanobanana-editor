@@ -379,6 +379,33 @@ async function detectTextInImage(base64, mimeType) {
     return data.hasText === true;
 }
 
+// Atomic server-side processing: detect + translate + upload in one call.
+// Retries up to maxRetries times on network failure (WiFi drop, etc.)
+async function processImageOnServer(params, maxRetries = 3) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
+    let lastErr;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const res = await fetch('/api/process-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...params, shopifyShop: shop, shopifyToken: token })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            return data;
+        } catch (err) {
+            lastErr = err;
+            if (attempt < maxRetries) {
+                console.warn(`Intento ${attempt}/${maxRetries} fallido, reintentando en 5s…`, err.message);
+                await new Promise(r => setTimeout(r, 5000));
+            }
+        }
+    }
+    throw lastErr;
+}
+
 // ── Core Functions ────────────────────────────────────────
 async function translateTextImage() {
     if (dom.generatedImage.classList.contains('hidden') || !dom.generatedImage.src) {
@@ -768,7 +795,7 @@ async function processDescriptionImages(p, labelPrefix, processedUrls = new Set(
         const originalSrc = imgEl.getAttribute('src');
         const proxySrc = `https://images.weserv.nl/?url=${encodeURIComponent(originalSrc.split('?')[0])}&output=jpg`;
 
-        // Load image
+        // Load image client-side (needed to get base64 to send to server)
         selectImageFromGallery(proxySrc);
         await new Promise((resolve, reject) => {
             if (dom.generatedImage.complete && dom.generatedImage.naturalHeight > 0) resolve();
@@ -778,27 +805,23 @@ async function processDescriptionImages(p, labelPrefix, processedUrls = new Set(
             }
         });
 
-        // Detect text
-        dom.btnCentralBulkProcess.textContent = `🔍 ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
-        const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
-        const hasText = await detectTextInImage(detBase64, detMime);
+        // Atomic server processing: detect + translate + upload in one call
+        dom.btnCentralBulkProcess.textContent = `⚙️ ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
+        const { base64: imgBase64, mimeType: imgMime } = getImageBase64(dom.generatedImage);
 
-        if (!hasText) continue;
+        const result = await processImageOnServer({
+            productId: p.id,
+            imageId: null,       // no borrar imagen original de descripción
+            imageBase64: imgBase64,
+            mimeType: imgMime,
+            variantIds: []
+        });
 
-        // Translate
-        dom.btnCentralBulkProcess.textContent = `🌀 ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
-        await translateTextImage();
-
-        // Upload as product image (no oldImageId — we don't delete description images)
-        dom.btnCentralBulkProcess.textContent = `🛍️ ${labelPrefix} — desc ${k + 1}/${imgs.length}`;
-        setGenerating(true);
-        const base64 = dom.generatedImage.src.split(',')[1];
-        const uploadData = await uploadToShopify(p.id, null, base64);
-        setGenerating(false);
+        if (result.result === 'skipped') continue;
 
         // Replace img src in parsed HTML with new Shopify CDN URL
-        if (uploadData.newImageSrc) {
-            imgEl.setAttribute('src', uploadData.newImageSrc);
+        if (result.newImageSrc) {
+            imgEl.setAttribute('src', result.newImageSrc);
             modified = true;
         }
 
@@ -907,10 +930,8 @@ async function bulkProcess() {
                                     .catch(err => console.error('Error reasociando variante duplicada:', err));
                                 await deleteShopifyImages(p.id, [img.id]).catch(() => {});
                             }
-                            // Si fpEntry.newImgId es null (la original no tenía texto), no borramos
-                            // para que la variante no se quede sin imagen
+                            // Si fpEntry.newImgId es null (original sin texto), no borramos
                         } else {
-                            // Sin variantes → borrar el duplicado sin más
                             await deleteShopifyImages(p.id, [img.id]).catch(err =>
                                 console.error('Error al eliminar duplicado visual:', err)
                             );
@@ -921,34 +942,40 @@ async function bulkProcess() {
                 }
                 if (fingerprint) seenFingerprints.set(fingerprint, { imgId: img.id, newImgId: null });
 
-                // 2. Detectar texto
-                dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
-                const { base64: detBase64, mimeType: detMime } = getImageBase64(dom.generatedImage);
-                const hasText = await detectTextInImage(detBase64, detMime);
-
-                if (!hasText) {
-                    skipped++;
-                    continue;
-                }
-
-                // 3. Traducir
-                dom.btnCentralBulkProcess.textContent = `🌀 ${i + 1}/${selected.length} — ${imgLabel}`;
-                await translateTextImage();
+                // 2. Obtener base64 para enviar al servidor
+                const { base64: imgBase64, mimeType: imgMime } = getImageBase64(dom.generatedImage);
 
                 if (isShopify && p.id) {
-                    // 4a. Subir a Shopify (pasa variantIds para reasociar la variante a la imagen nueva)
-                    dom.btnCentralBulkProcess.textContent = `🛍️ ${i + 1}/${selected.length} — ${imgLabel}`;
-                    setGenerating(true);
-                    const base64 = dom.generatedImage.src.split(',')[1];
-                    const uploadData = await uploadToShopify(p.id, img.id, base64, img.variantIds || []);
-                    setGenerating(false);
+                    // 3. Procesamiento atómico en servidor: detect + translate + upload en un solo llamado.
+                    //    Si el navegador se cierra, el servidor termina el trabajo.
+                    dom.btnCentralBulkProcess.textContent = `⚙️ ${i + 1}/${selected.length} — ${imgLabel}`;
+                    const result = await processImageOnServer({
+                        productId: p.id,
+                        imageId: img.id,
+                        imageBase64: imgBase64,
+                        mimeType: imgMime,
+                        variantIds: img.variantIds || []
+                    });
+
+                    if (result.result === 'skipped') {
+                        skipped++;
+                        continue;
+                    }
+
                     // Guardar newImgId para reutilizarlo si hay duplicados visuales de esta imagen
-                    if (fingerprint && uploadData?.newImageId) {
+                    if (fingerprint && result.newImageId) {
                         const fpEntry = seenFingerprints.get(fingerprint);
-                        if (fpEntry) fpEntry.newImgId = uploadData.newImageId;
+                        if (fpEntry) fpEntry.newImgId = result.newImageId;
                     }
                 } else {
-                    // 4b. Descargar localmente (modo CSV)
+                    // Modo CSV: detect + translate client-side + descargar localmente
+                    dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
+                    const hasText = await detectTextInImage(imgBase64, imgMime);
+                    if (!hasText) { skipped++; continue; }
+
+                    dom.btnCentralBulkProcess.textContent = `🌀 ${i + 1}/${selected.length} — ${imgLabel}`;
+                    await translateTextImage();
+
                     const resLink = document.createElement('a');
                     resLink.href = dom.generatedImage.src;
                     resLink.download = `translated_${p.handle || index}_${j}.png`;
@@ -957,7 +984,7 @@ async function bulkProcess() {
                     document.body.removeChild(resLink);
                 }
 
-                // Mark this URL as processed so description won't re-translate it
+                // Marcar URL como procesada para que la descripción no la retraduzca
                 processedUrls.add(normalizeImageUrl(img.src));
                 succeeded++;
             } catch (err) {
