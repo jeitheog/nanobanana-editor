@@ -23,7 +23,7 @@ export default async function handler(req, res) {
         form.append('prompt', 'Translate all visible text in this image to Spanish. Preserve every visual detail exactly: the product, background, colors, lighting, shadows, textures, and composition must remain photorealistic and identical to the original. The output must look like a real photograph, not a drawing, illustration, painting, or 3D render. Only change the language of the text labels.');
         form.append('n', '1');
         form.append('size', '1024x1024');
-        form.append('quality', 'low');
+        form.append('quality', 'medium');
 
         const response = await fetch('https://api.openai.com/v1/images/edits', {
             method: 'POST',
