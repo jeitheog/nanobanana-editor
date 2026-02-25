@@ -46,13 +46,28 @@ export default async function handler(req, res) {
         const { image: newImage } = await uploadRes.json();
 
         // 2. Asociar la nueva imagen a sus variantes (si es imagen de variante)
+        // Esperar a que Shopify procese la imagen antes de asociarla
         if (isVariantImage) {
+            await new Promise(r => setTimeout(r, 2000));
             for (const variantId of variantIds) {
-                await fetch(`${baseUrl}/variants/${variantId}.json`, {
+                let putRes = await fetch(`${baseUrl}/variants/${variantId}.json`, {
                     method: 'PUT',
                     headers,
                     body: JSON.stringify({ variant: { id: variantId, image_id: newImage.id } })
                 });
+                // Retry once if Shopify still hasn't processed the image
+                if (!putRes.ok) {
+                    await new Promise(r => setTimeout(r, 3000));
+                    putRes = await fetch(`${baseUrl}/variants/${variantId}.json`, {
+                        method: 'PUT',
+                        headers,
+                        body: JSON.stringify({ variant: { id: variantId, image_id: newImage.id } })
+                    });
+                    if (!putRes.ok) {
+                        const errBody = await putRes.json().catch(() => ({}));
+                        console.error(`Error asociando variante ${variantId}:`, errBody);
+                    }
+                }
             }
         }
 

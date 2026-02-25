@@ -696,6 +696,22 @@ function normalizeImageUrl(url) {
     }
 }
 
+async function reassociateVariants(variantIds, newImageId) {
+    const shop = dom.shopifyShop.value.trim();
+    const token = dom.shopifyToken.value.trim();
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(shop && token ? { 'x-shopify-shop': shop, 'x-shopify-token': token } : {})
+    };
+    for (const variantId of variantIds) {
+        await fetch('/api/shopify-variant-image', {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ variantId, imageId: newImageId })
+        }).catch(err => console.error(`Error reasociando variante ${variantId}:`, err));
+    }
+}
+
 async function deleteShopifyImages(productId, imageIds) {
     const shop = dom.shopifyShop.value.trim();
     const token = dom.shopifyToken.value.trim();
@@ -859,7 +875,8 @@ async function bulkProcess() {
 
         // Track processed URLs to avoid re-processing the same image in description
         const processedUrls = new Set();
-        // Visual fingerprints to catch content-identical images (e.g. Shopify renames dupes)
+        // Visual fingerprints: fingerprint → { imgId, newImgId }
+        // newImgId is filled after translation+upload so duplicate variants can be re-associated
         const seenFingerprints = new Map();
 
         for (let j = 0; j < allImages.length; j++) {
@@ -881,16 +898,28 @@ async function bulkProcess() {
                 // 1b. Fingerprint visual — detecta duplicados aunque Shopify haya renombrado el archivo
                 const fingerprint = getImageFingerprint(dom.generatedImage);
                 if (fingerprint && seenFingerprints.has(fingerprint)) {
-                    // Imagen visualmente idéntica a una ya procesada → eliminar y saltar
-                    if (isShopify && img.id) {
-                        await deleteShopifyImages(p.id, [img.id]).catch(err =>
-                            console.error('Error al eliminar duplicado visual:', err)
-                        );
+                    const fpEntry = seenFingerprints.get(fingerprint);
+                    if (isShopify) {
+                        if (img.variantIds?.length > 0) {
+                            if (fpEntry.newImgId) {
+                                // Reasociar la variante a la imagen ya traducida, luego borrar el duplicado
+                                await reassociateVariants(img.variantIds, fpEntry.newImgId)
+                                    .catch(err => console.error('Error reasociando variante duplicada:', err));
+                                await deleteShopifyImages(p.id, [img.id]).catch(() => {});
+                            }
+                            // Si fpEntry.newImgId es null (la original no tenía texto), no borramos
+                            // para que la variante no se quede sin imagen
+                        } else {
+                            // Sin variantes → borrar el duplicado sin más
+                            await deleteShopifyImages(p.id, [img.id]).catch(err =>
+                                console.error('Error al eliminar duplicado visual:', err)
+                            );
+                        }
                     }
                     skipped++;
                     continue;
                 }
-                if (fingerprint) seenFingerprints.set(fingerprint, img.id);
+                if (fingerprint) seenFingerprints.set(fingerprint, { imgId: img.id, newImgId: null });
 
                 // 2. Detectar texto
                 dom.btnCentralBulkProcess.textContent = `🔍 ${i + 1}/${selected.length} — ${imgLabel}`;
@@ -911,8 +940,13 @@ async function bulkProcess() {
                     dom.btnCentralBulkProcess.textContent = `🛍️ ${i + 1}/${selected.length} — ${imgLabel}`;
                     setGenerating(true);
                     const base64 = dom.generatedImage.src.split(',')[1];
-                    await uploadToShopify(p.id, img.id, base64, img.variantIds || []);
+                    const uploadData = await uploadToShopify(p.id, img.id, base64, img.variantIds || []);
                     setGenerating(false);
+                    // Guardar newImgId para reutilizarlo si hay duplicados visuales de esta imagen
+                    if (fingerprint && uploadData?.newImageId) {
+                        const fpEntry = seenFingerprints.get(fingerprint);
+                        if (fpEntry) fpEntry.newImgId = uploadData.newImageId;
+                    }
                 } else {
                     // 4b. Descargar localmente (modo CSV)
                     const resLink = document.createElement('a');
