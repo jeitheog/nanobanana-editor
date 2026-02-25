@@ -595,11 +595,13 @@ function filterGallery(query) {
         state.filteredProducts = state.products;
     } else {
         const q = query.toLowerCase();
-        state.filteredProducts = state.products.filter(p =>
-            p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q)
-        );
+        state.filteredProducts = state.products.filter(p => {
+            const matches = p.title.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q);
+            // Always keep selected products visible so they never "disappear"
+            const isSelected = state.selectedIndices.has(state.products.indexOf(p));
+            return matches || isSelected;
+        });
     }
-    // Do NOT clear selectedIndices — selection persists across searches
     updateBulkUI();
     renderGalleryItems(state.filteredProducts);
     dom.centralGalleryCount.textContent = `${state.filteredProducts.length} / ${state.products.length} productos`;
@@ -673,7 +675,7 @@ function selectAllInGallery() {
 }
 
 async function bulkDownload() {
-    const selected = Array.from(state.selectedIndices).map(i => state.filteredProducts[i]);
+    const selected = Array.from(state.selectedIndices).map(i => state.products[i]);
     if (selected.length === 0) return;
 
     for (const [idx, p] of selected.entries()) {
