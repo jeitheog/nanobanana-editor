@@ -872,7 +872,11 @@ function checkPendingJob() {
         // Reset any 'processing' items to 'pending' (they were interrupted mid-flight)
         job.items.filter(i => i.status === 'processing').forEach(i => i.status = 'pending');
         saveJobState(job);
-        executeJob(job);
+        switchView('explorer');
+        executeJob(job).catch(err => {
+            console.error('Error al reanudar job:', err);
+            alert(`Error al reanudar: ${err.message}`);
+        });
     });
     document.getElementById('btnDiscardJob').addEventListener('click', () => {
         clearJobState();
@@ -962,6 +966,8 @@ async function bulkProcess() {
 async function executeJob(job) {
     const isShopify = job.isShopify;
     state.isBulkProcessing = true;
+    // Always show the bulk actions bar (may be hidden if no products selected on resume)
+    dom.centralBulkActions.classList.remove('hidden');
     dom.btnCentralBulkProcess.disabled = true;
     dom.btnCentralBulkDownload.disabled = true;
     const originalText = dom.btnCentralBulkProcess.textContent;
@@ -1093,7 +1099,11 @@ async function executeJob(job) {
     dom.btnCentralBulkProcess.disabled = false;
     dom.btnCentralBulkDownload.disabled = false;
     dom.btnCentralBulkProcess.textContent = originalText;
-    setTimeout(() => dom.centralBulkProgressBar.classList.add('hidden'), 2000);
+    setTimeout(() => {
+        dom.centralBulkProgressBar.classList.add('hidden');
+        // Hide actions bar if nothing selected (e.g. resumed from scratch)
+        updateBulkUI();
+    }, 2000);
 
     const verb = isShopify ? 'subidas a Shopify' : 'descargadas';
     setStatus(`Listo — ${succeeded} ${verb}${failed > 0 ? `, ${failed} fallidas` : ''}${skipped > 0 ? `, ${skipped} saltadas` : ''}`);
