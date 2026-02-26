@@ -52,7 +52,10 @@ const dom = {
     btnCentralBulkProcess: document.getElementById('btnCentralBulkProcess'),
     btnCentralBulkDownload: document.getElementById('btnCentralBulkDownload'),
     centralBulkProgressBar: document.getElementById('centralBulkProgressBar'),
-    centralBulkProgressFill: document.getElementById('centralBulkProgressFill')
+    centralBulkProgressFill: document.getElementById('centralBulkProgressFill'),
+    // Balance
+    balanceContent: document.getElementById('balanceContent'),
+    btnRefreshBalance: document.getElementById('btnRefreshBalance')
 };
 
 // ── Initialization ────────────────────────────────────────
@@ -60,6 +63,62 @@ function init() {
     loadShopifyCredentials();
     attachEventListeners();
     checkPendingJob();
+    fetchOpenAIBalance();
+}
+
+async function fetchOpenAIBalance() {
+    dom.balanceContent.innerHTML = '<span class="balance-loading">Cargando...</span>';
+    dom.btnRefreshBalance.disabled = true;
+    try {
+        const res = await fetch('/api/openai-balance');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        const PRICE_PER_IMAGE = 0.167; // high quality gpt-image-1
+
+        if (data.type === 'credits') {
+            const pct = data.total > 0 ? Math.round((data.remaining / data.total) * 100) : 0;
+            const imgsLeft = Math.floor(data.remaining / PRICE_PER_IMAGE);
+            dom.balanceContent.innerHTML = `
+                <div class="balance-row">
+                    <span class="balance-label">Disponible</span>
+                    <span class="balance-value balance-ok">$${data.remaining.toFixed(2)}</span>
+                </div>
+                <div class="balance-row">
+                    <span class="balance-label">Usado</span>
+                    <span class="balance-value">$${data.used.toFixed(2)} / $${data.total.toFixed(2)}</span>
+                </div>
+                <div class="balance-bar-wrap">
+                    <div class="balance-bar-fill ${pct < 20 ? 'balance-bar-low' : ''}" style="width:${100 - pct}%"></div>
+                </div>
+                <div class="balance-estimate">≈ ${imgsLeft.toLocaleString()} imágenes restantes</div>
+            `;
+        } else {
+            const used = data.usedThisMonth ?? 0;
+            const limit = data.hardLimit ?? 0;
+            const pct = limit > 0 ? Math.round((used / limit) * 100) : 0;
+            const remaining = Math.max(0, limit - used);
+            const imgsLeft = Math.floor(remaining / PRICE_PER_IMAGE);
+            dom.balanceContent.innerHTML = `
+                <div class="balance-row">
+                    <span class="balance-label">Plan</span>
+                    <span class="balance-value">${data.plan}</span>
+                </div>
+                <div class="balance-row">
+                    <span class="balance-label">Usado este mes</span>
+                    <span class="balance-value ${pct > 80 ? 'balance-warn' : ''}">$${used.toFixed(2)} / $${limit.toFixed(2)}</span>
+                </div>
+                <div class="balance-bar-wrap">
+                    <div class="balance-bar-fill ${pct > 80 ? 'balance-bar-low' : ''}" style="width:${pct}%"></div>
+                </div>
+                <div class="balance-estimate">≈ ${imgsLeft.toLocaleString()} imágenes restantes</div>
+            `;
+        }
+    } catch (err) {
+        dom.balanceContent.innerHTML = `<span class="balance-error">Error: ${err.message}</span>`;
+    } finally {
+        dom.btnRefreshBalance.disabled = false;
+    }
 }
 
 function loadShopifyCredentials() {
@@ -117,6 +176,9 @@ function attachEventListeners() {
         dom.historyPanel.classList.toggle('hidden');
     });
     dom.closeHistory.addEventListener('click', () => dom.historyPanel.classList.add('hidden'));
+
+    // Balance
+    dom.btnRefreshBalance.addEventListener('click', fetchOpenAIBalance);
 
     // Shopify
     dom.btnLoadShopify.addEventListener('click', loadShopifyProducts);
