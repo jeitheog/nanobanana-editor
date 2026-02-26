@@ -804,3 +804,15 @@ body {
     color: var(--text-dim);
     text-align: center;
 }
+
+.balance-link {
+    display: block;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--accent);
+    text-decoration: none;
+    text-align: center;
+    opacity: 0.85;
+    transition: opacity 0.2s;
+}
+.balance-link:hover { opacity: 1; text-decoration: underline; }

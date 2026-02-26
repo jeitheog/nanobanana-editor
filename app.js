@@ -66,59 +66,60 @@ function init() {
     fetchOpenAIBalance();
 }
 
-async function fetchOpenAIBalance() {
-    dom.balanceContent.innerHTML = '<span class="balance-loading">Cargando...</span>';
-    dom.btnRefreshBalance.disabled = true;
-    try {
-        const res = await fetch('/api/openai-balance');
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+// ── Local cost tracker (OpenAI billing API is not accessible with API keys) ──
+const STATS_KEY = 'nb_stats_v1';
+const PRICE_PER_IMAGE = 0.167; // gpt-image-1 high quality
 
-        const PRICE_PER_IMAGE = 0.167; // high quality gpt-image-1
+function loadStats() {
+    try { return JSON.parse(localStorage.getItem(STATS_KEY) || 'null'); } catch { return null; }
+}
+function saveStats(s) { localStorage.setItem(STATS_KEY, JSON.stringify(s)); }
+function getOrInitStats() {
+    const s = loadStats();
+    if (s) return s;
+    const fresh = { translated: 0, costUsd: 0, today: { date: '', translated: 0, costUsd: 0 } };
+    saveStats(fresh);
+    return fresh;
+}
+function recordTranslation() {
+    const s = getOrInitStats();
+    const today = new Date().toISOString().split('T')[0];
+    if (s.today.date !== today) s.today = { date: today, translated: 0, costUsd: 0 };
+    s.translated += 1;
+    s.costUsd = parseFloat((s.costUsd + PRICE_PER_IMAGE).toFixed(4));
+    s.today.translated += 1;
+    s.today.costUsd = parseFloat((s.today.costUsd + PRICE_PER_IMAGE).toFixed(4));
+    saveStats(s);
+    renderBalance(s);
+}
 
-        if (data.type === 'credits') {
-            const pct = data.total > 0 ? Math.round((data.remaining / data.total) * 100) : 0;
-            const imgsLeft = Math.floor(data.remaining / PRICE_PER_IMAGE);
-            dom.balanceContent.innerHTML = `
-                <div class="balance-row">
-                    <span class="balance-label">Disponible</span>
-                    <span class="balance-value balance-ok">$${data.remaining.toFixed(2)}</span>
-                </div>
-                <div class="balance-row">
-                    <span class="balance-label">Usado</span>
-                    <span class="balance-value">$${data.used.toFixed(2)} / $${data.total.toFixed(2)}</span>
-                </div>
-                <div class="balance-bar-wrap">
-                    <div class="balance-bar-fill ${pct < 20 ? 'balance-bar-low' : ''}" style="width:${100 - pct}%"></div>
-                </div>
-                <div class="balance-estimate">≈ ${imgsLeft.toLocaleString()} imágenes restantes</div>
-            `;
-        } else {
-            const used = data.usedThisMonth ?? 0;
-            const limit = data.hardLimit ?? 0;
-            const pct = limit > 0 ? Math.round((used / limit) * 100) : 0;
-            const remaining = Math.max(0, limit - used);
-            const imgsLeft = Math.floor(remaining / PRICE_PER_IMAGE);
-            dom.balanceContent.innerHTML = `
-                <div class="balance-row">
-                    <span class="balance-label">Plan</span>
-                    <span class="balance-value">${data.plan}</span>
-                </div>
-                <div class="balance-row">
-                    <span class="balance-label">Usado este mes</span>
-                    <span class="balance-value ${pct > 80 ? 'balance-warn' : ''}">$${used.toFixed(2)} / $${limit.toFixed(2)}</span>
-                </div>
-                <div class="balance-bar-wrap">
-                    <div class="balance-bar-fill ${pct > 80 ? 'balance-bar-low' : ''}" style="width:${pct}%"></div>
-                </div>
-                <div class="balance-estimate">≈ ${imgsLeft.toLocaleString()} imágenes restantes</div>
-            `;
-        }
-    } catch (err) {
-        dom.balanceContent.innerHTML = `<span class="balance-error">Error: ${err.message}</span>`;
-    } finally {
-        dom.btnRefreshBalance.disabled = false;
-    }
+function fetchOpenAIBalance() {
+    renderBalance(getOrInitStats());
+}
+
+function renderBalance(s) {
+    const today = new Date().toISOString().split('T')[0];
+    const todayData = s.today?.date === today ? s.today : { translated: 0, costUsd: 0 };
+    dom.balanceContent.innerHTML = `
+        <div class="balance-row">
+            <span class="balance-label">Gasto total estimado</span>
+            <span class="balance-value balance-warn">$${s.costUsd.toFixed(2)}</span>
+        </div>
+        <div class="balance-row">
+            <span class="balance-label">Imágenes traducidas</span>
+            <span class="balance-value">${s.translated.toLocaleString()}</span>
+        </div>
+        <div class="balance-row">
+            <span class="balance-label">Hoy</span>
+            <span class="balance-value">${todayData.translated} img — $${todayData.costUsd.toFixed(2)}</span>
+        </div>
+        <div class="balance-row" style="margin-top:6px">
+            <span class="balance-label">$${PRICE_PER_IMAGE}/imagen (high)</span>
+        </div>
+        <a class="balance-link" href="https://platform.openai.com/usage" target="_blank" rel="noopener">
+            Ver balance real en OpenAI →
+        </a>
+    `;
 }
 
 function loadShopifyCredentials() {
@@ -1101,6 +1102,7 @@ async function executeJob(job) {
                 } else {
                     item.status = 'done';
                     item.newImageId = result.newImageId;
+                    recordTranslation();
                     if (fingerprint && result.newImageId) {
                         const fpEntry = seenFingerprints.get(fingerprint);
                         if (fpEntry) fpEntry.newImgId = result.newImageId;
