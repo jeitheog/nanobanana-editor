@@ -68,7 +68,7 @@ function init() {
 
 // ── Local cost tracker (OpenAI billing API is not accessible with API keys) ──
 const STATS_KEY = 'nb_stats_v1';
-const PRICE_PER_IMAGE = 0.167; // gpt-image-1 high quality
+const PRICE_PER_IMAGE = 0.042; // gpt-image-1 medium quality
 
 function loadStats() {
     try { return JSON.parse(localStorage.getItem(STATS_KEY) || 'null'); } catch { return null; }
@@ -114,7 +114,7 @@ function renderBalance(s) {
             <span class="balance-value">${todayData.translated} img — $${todayData.costUsd.toFixed(2)}</span>
         </div>
         <div class="balance-row" style="margin-top:6px">
-            <span class="balance-label">$${PRICE_PER_IMAGE}/imagen (high)</span>
+            <span class="balance-label">$${PRICE_PER_IMAGE}/imagen (medium)</span>
         </div>
         <a class="balance-link" href="https://platform.openai.com/usage" target="_blank" rel="noopener">
             Ver balance real en OpenAI →
